@@ -1,0 +1,168 @@
+---
+title: "HW2"
+author: "Yue Zhang"
+date: "2024-09-15"
+output:
+  html_document:
+    df_print: paged
+  pdf_document:
+    latex_engine: xelatex
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include = FALSE}
+#This code chunk will tidy your knit PDF files, wrapping long code lines
+#For it to work, the "formatR" package needs to be installed
+#install.packages('formatR')
+knitr::opts_chunk$set(tidy.opts=list(width.cutoff=60), tidy=TRUE)
+
+```
+
+```{r packages, include = FALSE}
+getwd()
+library(tidyverse)
+library(lubridate)
+library(dplyr)
+library(ggthemes)
+library(ggplot2)
+library(readxl)
+library(pwr)
+
+mytheme = theme_clean(base_size = 12) +
+  theme(
+    axis.text = element_text(color = "black"),
+    legend.position = "right",
+    axis.text.x = element_text(
+      angle = 45,
+      vjust = 0.5,
+      hjust = 0.5
+    ),
+    plot.title = element_text(size = 12)
+  )
+theme_set(mytheme)
+```
+
+## Microbiology
+
+A study was conducted to demonstrate that soybeans inoculated with nitrogen-fixing bacteria yield more and grow adequately without expensive environmentally deleterious synthesized fertilizers. The trial was conducted under controlled conditions with uniform amounts of soil. The initial hypothesis was that inoculated plants would outperform their uninoculated counterparts. This assumption is based on the facts that plants need nitrogen to manufacture vital proteins and amino acids and that nitrogen-fixing bacteria would make more of this substance available to plants, increasing their size and yield. There were 8 inoculated plants (I) and 8 uninoculated plants (U). The plant yield as measured by pod weight for each plant is given in Table 2.20.
+
+2.36 Use graphic methods to compare the two groups.
+```{r 1, message = FALSE, warning = FALSE, echo = FALSE}
+PodWeight = data.frame(I = c(1.76,1.45,1.03,1.53,2.34,1.96,1.79,1.21), U = c(0.49,0.85,1.00,1.54,1.01,0.75,2.11,0.92))
+
+mean_I = mean(PodWeight$I)
+sd_I = sd(PodWeight$I)
+summary_I = summary(PodWeight$I)
+print(summary_I)
+
+mean_U = mean(PodWeight$U)
+sd_U = sd(PodWeight$U)
+summary_U = summary(PodWeight$U)
+print(summary_U)
+
+bp = boxplot(PodWeight$I, PodWeight$U,
+        names = c("Inoculated (I)", "Uninoculated (U)"),
+        main = "Boxplot of Pod Weights",
+        ylab = "Pod Weight (g)",
+        col = c("lightblue", "lightgreen"))
+
+h_I = hist(PodWeight$I,
+     main = "Histogram of Pod Weights (Inoculated)",
+     xlab = "Pod Weight (g)",
+     ylab = "Frequency",
+     col = "lightblue",
+     border = "black",
+     breaks = 5)
+
+h_U = hist(PodWeight$U,
+     main = "Histogram of Pod Weights (Uninoculated)",
+     xlab = "Pod Weight (g)",
+     ylab = "Frequency",
+     col = "lightgreen",
+     border = "black",
+     breaks = 5)
+```
+
+2.37 What is your overall impression concerning the pod weight in the two groups?
+
+Answer:As the descriptive statistics show, the mean pod weight for I is higher than U, and the variance of I is lower than U, meaning that the U group will be more spread out than the I group. This means that inoculated with nitrogen-fixing bacteria will increase pod weight in this case, but the sample is too small. 
+As the boxplot shows that, group I has a higher median and less spread compared to group U. The outlier could be due to random variation, measurement error, or differences in individual plant health or conditions during the experiment.Also, the distribution of pod weights for group I is higher than group U. Histograms of different groups show that most inoculated plants will cluster around higher values while uninoculated plants have a wider spread and lower overall weights.
+
+## Endocrinology
+
+In Section 2.10, we described Data Set BONEDEN.DAT(at www.cengagebrain.com) concerning the effect of tobacco use on BMD.
+
+2.38 For each pair of twins, compute the following for the lumbar spine:
+A = BMD for the heavier-smoking twin − BMD for the lighter-smoking twin = x1 − x2
+B = mean BMD for the twinship = (x1 + x2)/2
+C = 100% × (A/B)
+Derive appropriate descriptive statistics for C over the entire study population.
+```{r 2.38, message = FALSE, warning = FALSE, echo = FALSE}
+Boneden = read_xls("E:/Biostat/Biostatistics/PHL_1700/Data/Raw/boneden-1.xls")
+Boneden$A = Boneden$ls2 - Boneden$ls1
+Boneden$B = (Boneden$ls1 + Boneden$ls2)/2
+Boneden$C = 100 * (Boneden$A/Boneden$B)
+summary(Boneden$C)
+
+bp2 = boxplot(Boneden$C,
+              xlab = "Boxplot of C",
+              ylab = "BDM (g/cm**2)",
+              col = "purple")
+```
+
+Answer: The median and distribution of the boxplot shows that smoking seems to have a slightly negative effect on BMD since the median is below zero and most of the data points lie within the range of approximately -30% to 20%. Two points are outliers which means that the difference in BMD is more negative than other points, in this case, the heavier-smoking twin had significantly lower BMD.
+
+2.39 Suppose we group the twin pairs according to the difference in tobacco use expressed in 10 pack-year
+groups (0–9.9 pack-years/10–19.9 pack-years/20–29.9 pack-years/30–39.9 pack-years/40+ pack-years). Compute appropriate descriptive statistics, and provide a scatter plot for C grouped by the difference in tobacco use in pack-years.
+```{r 2.39, message = FALSE, warning = FALSE, echo = FALSE}
+packyears = abs(Boneden$pyr2 - Boneden$pyr1)
+Boneden = Boneden %>% mutate(
+  packyear_group = case_when(
+    packyears < 10 ~ "0-9.9",
+    packyears >= 10 & packyears < 20 ~ "10-19.9",
+    packyears >= 20 & packyears < 30 ~ "20-29.9",
+    packyears >= 30 & packyears < 40 ~ "30-39.9",
+    packyears >= 40 ~ "40+"
+  )
+)
+
+desstat = Boneden %>% group_by(packyear_group) %>% summarize(
+  count = n(),
+  mean_C = mean(C),
+  sd_C = sd(C),
+  min_C = min(C),
+  max_C = max(C)
+)
+print(desstat)
+
+Boneden$packyear_group = as.numeric(as.factor(Boneden$packyear_group))
+sp = ggplot(Boneden, aes(x = packyear_group, y = C)) +
+  geom_smooth() +
+  geom_point() +
+  labs(title = "Scatter Plot of C by Pack-Year Group", x = "Pack-Year Group (Pack-Years)", y = "C (%)")
+print(sp)
+```
+
+2.40 What impression do you have of the relationship between BMD and tobacco use based on Problem 2.39?
+
+Answer: From the scatter plot, we can observe how the BMD change (C) is distributed across the different pack-year groups. There seems to be a downward trend in BMD as the pack years increase. Descriptive statistics and the scatter plot show that tobacco use in pack-years tends to have a slightly negative effect on BMD. However, after group 3, the effect seems not to be consistent. The leveling off the trend line in the higher pack-year groups could indicate that after a certain level of smoking intensity, the impact on BMD does not continue to decrease. It could be the reason that the sample size or variability in these groups makes it difficult to detect a clear pattern. Also in group 5, there is an outlier. 
+
+```{r}
+binom.test(5, 20, 0.12, alternative = "two.sided")
+
+poisson.test(x = 17, r = 6.3, alternative = "two.sided")
+
+2*pt(-7.04,40)
+
+# Define parameters
+effect_size = (388 - 400) / 37 
+power = 0.90  
+alpha = 0.05
+
+# Calculate sample size
+pwr.t.test(d = effect_size, sig.level = alpha, power = power, type = "one.sample", alternative = "two.sided")
+
+
+```
+

@@ -1,0 +1,119 @@
+---
+title: "HW5_PH1700"
+author: "Yue Zhang"
+date: "2024-10-02"
+output: html_document
+output:
+  bookdown::html_document2:
+    df_print: paged
+    toc: true
+    fig_caption: yes
+  pdf_document:
+    keep_tex: yes
+    fig_caption: yes
+geometry: margin=2.54cm
+fontsize: 12pt
+mainfont: Times New Roman
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+#This code chunk will tidy your knit PDF files, wrapping long code lines
+#For it to work, the "formatR" package needs to be installed
+#install.packages('formatR')
+knitr::opts_chunk$set(tidy.opts=list(width.cutoff=60), tidy=TRUE)
+knitr::opts_knit$set(root.dir = "E:/Biostat/Biostatistics")
+```
+
+```{r packages, include = FALSE}
+getwd()
+library(tidyverse)
+library(lubridate)
+library(dplyr)
+library(ggthemes)
+library(ggplot2)
+library(readxl)
+library(haven)
+
+mytheme = theme_clean(base_size = 12) +
+  theme(
+    axis.text = element_text(color = "black"),
+    legend.position = "right",
+    axis.text.x = element_text(
+      angle = 45,
+      vjust = 0.5,
+      hjust = 0.5
+    ),
+    plot.title = element_text(size = 12)
+  )
+theme_set(mytheme)
+```
+
+##8.81
+###Research question: Is there a difference in degree of pain during maximal activity while on Motrin compared to placebo?
+(a)
+```{r 8.81a, message=FALSE, warning=FALSE, echo=FALSE, fig.align = "center", fig.cap = "Histogram of Pain Score Difference"}
+Tennis = read.csv("/Biostat/Biostatistics/PHL_1700/Data/Raw/Tennis.csv")
+
+(a)
+Since we have 88 observations which is larger than 30, we should be able to apply the CLT.
+
+# Create variable to calculate the pain difference (Motrin - Placebo)
+Tennis$pain_diff = ifelse(
+  Tennis$drg_ord == 1,
+  Tennis$painmx_2 - Tennis$painmx_4,
+  Tennis$painmx_4 - Tennis$painmx_2
+)
+
+# Plot histogram of the differences
+hist(
+  Tennis$pain_diff,
+  main = "Pain Score Difference (Motrin - Placebo)",
+  xlab = "Pain Score Difference",
+  col = "lightblue",
+  breaks = 10
+)
+```
+
+```{r 8.81a2, message=FALSE, warning=FALSE, echo=FALSE, fig.align = "center", fig.cap = "Boxplot of Pain Score Difference"}
+#Plot boxplot of the difference
+boxplot(
+  Tennis$pain_diff,
+  main = "Pain Score Difference (Motrin - Placebo)",
+  xlab = "Pain Score Difference",
+  col = "lightblue"
+)
+```
+The histogram shows a reasonably symmetric and bell-shaped distribution, indicating that the normalization of the data. Thus the CLT applies. The boxplot shows that there are very few outliers and the median of pain score difference is around zero, indicating the difference between Motrin and placebo is small. 
+
+(b)
+A paired t-test should be used, since this is a cross-over design.
+
+(c)
+Null hypothesis: There is no difference in degree of pain during maximal activity while on Motrin compared to placebo
+Alternative hypothesis: There is difference in degree of pain during maximal activity while on Motrin compared to placebo
+```{r 8.81c, message=FALSE, warning=FALSE}
+#Since we've calculated the pain difference, we'll use one sample t test
+t.test(Tennis$pain_diff, mu = 0)
+```
+The p-value is 0.001 < 0.05, then we have enough evidence to reject the null hypothesis that there is difference in degree of pain during maximal activity while on Motrin compared to placebo. 
+
+(d)
+The 95% CI is (0.34, 1.28) which means that we are 95% confident that the difference of the means will lies between 0.34 and 1.28. However, the null value is 0 which is not included in the CI. Thus, we can reject the null hypothesis.
+
+(e)
+Null hypothesis: There is no difference in degree of pain during maximal activity while on Motrin compared to placebo
+Alternative hypothesis: Motrin is associated with a lower degree of pain during maximal activity compared to placebo
+```{r 8.81e, message=FALSE, warning=FALSE}
+t.test(Tennis$pain_diff, mu=0, alternative = "less")
+```
+The 95% CI is (-inf, 1.20), which means that we are 95% confident that the difference of means will lies in the region. The null value (0) is included in the CI and our p-value (0.9995) is larger than 0.05, thus we don't have enough evidence to reject the null hypothesis.
+
+##8.139
+```{r 8.139, message=FALSE, warning=FALSE}
+Diabetes = read_dta("/Biostat/Biostatistics/PHL_1700/Data/Raw/DIABETES-1.DAT.dta")
+write.csv(Diabetes, "diabetes.csv", row.names = FALSE)
+```
+
+

@@ -1,0 +1,127 @@
+---
+title: "HW1"
+author: "Yue Zhang"
+date: "2024-09-07"
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+library(dplyr)
+library(ggthemes)
+library(ggplot2)
+
+mytheme = theme_clean(base_size = 12) +
+  theme(
+    axis.text = element_text(color = "black"),
+    legend.position = "right",
+    axis.text.x = element_text(
+      angle = 45,
+      vjust = 0.5,
+      hjust = 0.5
+    ),
+    plot.title = element_text(size = 12)
+  )
+theme_set(mytheme)
+```
+
+## R Markdown
+
+```{r 1.4, message = FALSE, warning = FALSE}
+# Define the likelihood function
+likelihood = function(p) {
+  2 * p * (1 - p)
+}
+
+# Generate a sequence of pi values between 0 and 1
+p_values = seq(0, 1, length.out = 100)
+
+# Calculate the likelihood for each pi value
+likelihood_values = likelihood(p_values)
+
+# Plot the likelihood function
+plot(p_values, likelihood_values, type = "l", col = "blue", lwd = 2,
+     xlab = expression(pi), ylab = "Likelihood",
+     main = "Likelihood Function for y = 1")
+
+# Add a vertical line at the maximum likelihood estimate (MLE)
+abline(v = 0.5, col = "red", lty = 2)
+```
+
+Extra non-required questions
+```{r a, message = FALSE, warning = FALSE}
+#Set variables for binomial distribution
+n_values = c(10, 100, 1000, 10000)
+p = 0.5
+par(mfrow = c(2,2), mar=c(4,4,2,2))
+
+#Loop and generate binomial random variables
+for (n in n_values) {
+  binom_sample = rbinom(n, size = 1000, prob = p)
+  
+  #Calculate mean and sd for normal distribution
+  mean_value = 1000 * p
+  sd_value = sqrt(1000 * p * (1 - p))
+  
+  #Histogram for binomial distribution
+  hist(
+    binom_sample,
+    breaks = 30,
+    col = "lightblue",
+    border = "black",
+    main = "",
+    xlab = "Number of Successes", 
+    probability = TRUE
+  )
+  
+  #Overlay normal distribution
+  curve(dnorm(x, mean = mean_value, sd = sd_value),
+        col = "red",
+        add = TRUE)
+}
+
+mtext("Binomial and Normal Distribution", outer = TRUE, cex = 1.2, line = -1.2)
+
+#We can see as n increases, the binomial random variables will converge to a normal distribution
+```
+
+```{r b, message = FALSE, warning = FALSE}
+#Set variables for binomial distribution
+n_values2 = c(10, 100, 1000, 10000)
+Lambda = 20
+par(mfrow = c(2,2), mar=c(4,4,2,2))
+
+#Loop and generate binomial random variables
+for (n2 in n_values2) {
+  poi_sample = rpois(n2, lambda = Lambda)
+  
+  #Calculate mean and sd for normal distribution
+  mean_value2 = Lambda
+  sd_value2 = sqrt(Lambda)
+  
+  #Histogram for binomial distribution
+  hist(
+    poi_sample,
+    breaks = 30,
+    col = "lightblue",
+    border = "black",
+    main = "",
+    xlab = "Number of Events", 
+    probability = TRUE
+  )
+  
+  #Overlay normal distribution
+  curve(dnorm(x, mean = mean_value2, sd = sd_value2),
+        col = "red",
+        add = TRUE)
+}
+
+mtext("Poisson and Normal Distribution", outer = TRUE, cex = 1.2, line = -1.2)
+
+#We can see as n increases, the poisson random variables will converge to a normal distribution
+```
+

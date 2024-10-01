@@ -1,0 +1,70 @@
+---
+title: "HW2"
+author: "Yue Zhang"
+date: "2024-08-29"
+output: html_document
+---
+
+## Stata Markdown Example
+
+A study was conducted to demonstrate that soybeans inoculated with nitrogen-fixing bacteria yield more and grow adequately without expensive environmentally deleterious synthesized fertilizers. The trial was conducted under controlled conditions with uniform amounts of soil. The initial hypothesis was that inoculated plants would outperform their uninoculated counterparts. This assumption is based on the facts that plants need nitrogen to manufacture vital proteins and amino acids and that nitrogen-fixing bacteria would make more of this substance available to plants, increasing their size and yield. There were 8 inoculated plants (I) and 8 uninoculated plants (U). The plant yield as measured by pod weight for each plant is given.
+
+### Descriptive Statistics for Inoculated and Uninoculated Plants
+
+```stata
+<<dd_do>>
+clear
+input float(I U)
+1.76 0.49
+1.45 0.85
+1.03 1.00
+1.53 1.54
+2.34 1.01
+1.96 0.75
+1.79 2.11
+1.21 0.92
+end
+
+summarize I U
+
+graph box I U, over(U) title("Boxplot of Pod Weights") ytitle("Pod Weight (g)")
+<</dd_do>>
+
+### Visualizing the Data: Boxplots and Histograms
+
+```stata
+<<dd_do>>
+histogram I, title("Histogram of Pod Weights (Inoculated)") xlabel(1(0.2)2.5) color(blue)
+histogram U, title("Histogram of Pod Weights (Uninoculated)") xlabel(0(0.2)2.5) color(green)
+<</dd_do>>
+
+### Comparison and Interpretation
+
+From the boxplots and histograms, we observe that the mean pod weight for inoculated plants is higher than for uninoculated plants. The spread for uninoculated plants seems wider, indicating more variability in the pod weight.
+
+---
+
+### Example with Tobacco Data and Pack-Year Groups
+
+```stata
+<<dd_do>>
+import excel using "boneden-1.xls", sheet("bone2") firstrow clear
+
+gen A = ls2 - ls1
+gen B = (ls1 + ls2) / 2
+gen C = 100 * (A / B)
+
+* Categorize pack years
+gen packyear_group = .
+replace packyear_group = 1 if pyr2 - pyr1 < 10
+replace packyear_group = 2 if pyr2 - pyr1 >= 10 & pyr2 - pyr1 < 20
+replace packyear_group = 3 if pyr2 - pyr1 >= 20 & pyr2 - pyr1 < 30
+replace packyear_group = 4 if pyr2 - pyr1 >= 30 & pyr2 - pyr1 < 40
+replace packyear_group = 5 if pyr2 - pyr1 >= 40
+
+graph twoway scatter C packyear_group || lfit C packyear_group, title("Scatter Plot of C by Pack-Year Group")
+<</dd_do>>
+
+### Interpretation
+
+From the scatter plot, we can observe how the BMD change (C) is distributed across the different pack-year groups. There seems to be a downward trend in BMD as the pack years increase.
