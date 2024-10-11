@@ -1,0 +1,188 @@
+---
+title: "HW3_1830"
+author: "Yue Zhang"
+date: "2024-10-11"
+output: pdf_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+#This code chunk will tidy your knit PDF files, wrapping long code lines
+#For it to work, the "formatR" package needs to be installed
+#install.packages('formatR')
+knitr::opts_chunk$set(tidy.opts=list(width.cutoff=60), tidy=TRUE)
+```
+
+```{r packages, include = FALSE}
+setwd("E:/Biostat/Biostatistics/PH 1830/")
+getwd()
+library(tidyverse)
+library(lubridate)
+library(dplyr)
+library(ggthemes)
+library(ggplot2)
+library(readxl)
+library(lmtest)
+
+```
+
+# 3.3
+(a)
+P(Y=1) = 0.00109*X + 0.00255
+
+(b)
+```{r 1b, message=FALSE, warning=FALSE}
+#(i)
+#For X = 0
+y1 = 0.00109*0 + 0.00255
+y1
+#For X = 7
+y2 = 0.00109*7 + 0.00255
+y2
+
+#(ii)
+RelativeRisk = y2/y1
+RelativeRisk
+```
+
+(c)
+```{r 1c, message=FALSE, warning=FALSE}
+X = c(0, 1, 2, 3, 4)
+Y1 = c(48, 38, 5, 1, 1)
+N = c(17114, 14502, 793, 127, 38)
+Table1 = data.frame(X, Y1, N)
+fit1 = glm(Y1/N ~ X, family = quasi(link = "identity", variance = "mu(1-mu)"), weights = N, data = Table1)
+summary(fit1)
+
+#Based on the re-fit model: P(Y=1) = 0.00050*X + 0.00260 
+#For X = 0
+y3 = 0.00050*0+0.00260
+y3
+#For X = 7
+y4 = 0.00050*7 + 0.00260
+y4
+
+RelativeRisk2 = y4/y3
+RelativeRisk2
+
+#Since the relative risk changes from 3.99 to 2.35 which is quite dramatic, this suggests that the results are sensitive to the choice of scores.
+```
+
+(d)
+```{r 1d, message=FALSE, warning=FALSE}
+#Linear model without the observation
+X2 = c(0, 0.5, 1.5, 4.0)
+Y2 = c(48, 38, 5, 1)
+N2 = c(17114, 14502, 793, 127)
+Table2 = data.frame(X2, Y2, N2)
+fit2 = glm(Y2/N2 ~ X2, family = quasi(link = "identity", variance = "mu(1-mu)"), weights = N2, data = Table2)
+summary(fit2)
+
+#Based on the above model: P(Y=1) = 0.00082*X + 0.00260
+#For X = 0
+y5 = 0.00082*0+0.00260
+y5
+#For X = 7
+y6 = 0.00082*7 + 0.00260
+y6
+
+RelativeRisk3 = y6/y5
+RelativeRisk3
+
+#Since we've calculated that the relative risk for linear model with the observation is 3.99, the relative risk decreases to 3.21 when omitting the observation. Therefore, the results are slightly sensitive to this single malformation.
+```
+
+#3.6
+(a)
+log[P(Y=1)/(1-P(Y=1))]=-0.5901*X + 3.1870
+The negative coefficient for X indicates that as political ideology becomes more conservative, the likelihood of being a Democrat decreases.
+
+(b)
+```{r 2b, message=FALSE, warning=FALSE}
+CI_L = -0.5901 - 1.96*0.1564
+CI_L
+CI_U = -0.5901 + 1.96*0.1564
+CI_U
+#The 95% Wald CI is (-0.896644, -0.283556) while the profile likelihood interval is (-0.91587 -0.29832). The profile likelihood interval is slightly wider than the 95% Wald CI as it accounts for the shape of the likelihood function, offering a more accurate estimate.
+```
+
+(c)
+Z = -3.772
+P_value = 0.000162
+Since the p-value is less than alpha(0.05), we can reject the null hypothesis and conclude that the political ideology has a significant effect on the probability of being a Democrat.
+
+(d)
+```{r 2d, message=FALSE, warning=FALSE}
+Democrat = c(5, 18, 19, 25, 7, 7, 2)
+N3 = c(6, 21, 20, 36, 17, 18, 3)
+X3 = c(1, 2, 3, 4, 5, 6, 7)
+fit3 = glm(Democrat/N3 ~ X3, family = binomial(link = "logit"), weights = N3)
+summary(fit3)
+
+fit4 = glm(Democrat/N3 ~ 1, family = binomial(link = "logit"), weights = N3)
+summary(fit4)
+lrtest(fit3, fit4)
+
+#The test statistic(chisq) is 17.009, and p-value is 3.72e-0.5 which is much smaller than alpha(0.05). Therefore, we can reject the null hypothesis and state that X3 has a significant effect on the probability of being a Democrat.
+```
+
+(e)
+The number of Fisher Scoring iterations is 4 indicates that the model converged efficiently, as Fisher scoring is an iterative process used to estimate the parameters of the model.
+
+#3.8
+```{r 3, message=FALSE, warning=FALSE}
+Snoring = c(0, 2, 4, 5)
+HeartDisease_Y = c(24, 35, 21, 30)
+HeartDisease_N = c(1355, 603, 192, 224)
+Table3 = data.frame(Snoring, HeartDisease_Y, HeartDisease_N)
+Table3$N4 = Table3$HeartDisease_Y + Table3$HeartDisease_N
+fit5 = glm(HeartDisease_Y/N4 ~ Snoring, family = binomial(link = "logit"), weights = N4, data = Table3) 
+summary(fit5)
+confint(fit5)
+```
+
+#3.13
+(a)
+```{r 4a, message=FALSE, warning=FALSE}
+Crab = read.table("http://www.stat.ufl.edu/~aa/cat/data/Crabs.dat", header = TRUE)
+fit6 = glm(sat ~ weight, family = poisson(link = "log"), data = Crab)
+summary(fit6)
+
+#Based on above, the prediction equation is: mu_hat = exp(0.58930*X - 0.42841)
+#For x = 2.44kg,
+MeanResponse = exp(0.58930*2.44-0.42841)
+MeanResponse
+```
+
+(b)
+```{r 4b, message=FALSE, warning=FALSE}
+exp(0.58930)
+#The beta hat means that for every 1kg increase in crab weight, the expected number of satellites increases by approximately 80.3%.
+
+CI_L2 = 0.58930 - 1.96*0.06502
+CI_L2
+CI_U2 = 0.58930 + 1.96*0.06502
+CI_U2
+#The 95% CI is (0.461861, 0.716739). 
+
+exp(0.461861)
+exp(0.716739)
+#The 95% CI for multiplicative effect is (1.58703, 2.04775)
+```
+
+(c)
+```{r 4c, message=FALSE, warning=FALSE}
+#Wald test
+#Null hypothesis: beta = 0, Alternative hypothesis: beta is not equal to 0.
+Z_squared = (0.58930/0.06502)^2
+Z_squared
+
+#Likelihood Ratio test
+fit7 = glm(sat ~ 1, family = poisson(link = "log"), data = Crab)
+summary(fit7)
+lrtest(fit6, fit7)
+#Since the Likelihood ratio test statistic is 71.925 and df = 1, and the p-value is far less than 0.05 which means that we can reject the null hypothesis.
+
+```
+
