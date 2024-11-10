@@ -2,8 +2,10 @@
 title: "HW4_1830"
 author: "Yue Zhang"
 date: "2024-10-14"
-output: pdf_document
-editor_options: 
+output:
+  html_document:
+    df_print: paged
+editor_options:
   chunk_output_type: console
 ---
 

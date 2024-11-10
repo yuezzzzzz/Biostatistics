@@ -1,0 +1,163 @@
+---
+title: "HW6_1700"
+author: "Yue Zhang"
+date: "2024-11-04"
+output:
+  html_document:
+    toc: true
+    df_print: paged
+  pdf_document:
+    keep_tex: true
+  bookdown::html_document2:
+    df_print: paged
+    toc: true
+geometry: margin=2.54cm
+fontsize: 12pt
+mainfont: Times New Roman
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+#This code chunk will tidy your knit PDF files, wrapping long code lines
+#For it to work, the "formatR" package needs to be installed
+#install.packages('formatR')
+knitr::opts_chunk$set(tidy.opts=list(width.cutoff=60), tidy=TRUE)
+knitr::opts_knit$set(root.dir = "E:/Biostat/Biostatistics/PHL_1700/")
+```
+
+```{r packages, include = FALSE}
+getwd()
+library(tidyverse)
+library(lubridate)
+library(dplyr)
+library(ggthemes)
+library(ggplot2)
+library(readxl)
+library(haven)
+library(stats)
+library(pwr)
+
+mytheme = theme_clean(base_size = 12) +
+  theme(
+    axis.text = element_text(color = "black"),
+    legend.position = "right",
+    axis.text.x = element_text(
+      angle = 45,
+      vjust = 0.5,
+      hjust = 0.5
+    ),
+    plot.title = element_text(size = 12)
+  )
+theme_set(mytheme)
+```
+
+#10.14
+
+|                        | Used OC Oracon | Did Not Use OC Oracon | Total |
+|------------------------|----------------|-----------------------|-------|
+| **Endometrial Cancer** | 6              | 111                   | 117   |
+| **Control**            | 8              | 387                   | 395   |
+| **Total**              | 14             | 498                   | 512   |
+
+#10.20
+```{r 2, message=FALSE, warning=FALSE}
+phat_ear = 4/76
+phat_ear
+CI_L = p_hat-1.96*sqrt(p_hat*(1-p_hat)/76)
+CI_L
+CI_U = p_hat+1.96*sqrt(p_hat*(1-p_hat)/76)
+CI_U
+```
+The point estimation is 0.05, and the 95% CI for the prevalence of otorrhea for the ear drop group is (0.002, 0.103)
+
+#10.21
+Two sample Z test can be used to compare the prevalence of otorrhea for the ear drop group to the observation group.
+Null hypothesis: there's no difference in the prevalence of otorrhea between the ear drop group and the observation group.
+Alternative hypothesis: there's difference in the prevalence of otorrhea between the ear drop group and the observation group.
+
+#10.22
+```{r 3, message=FALSE, warning=FALSE}
+phat_obs = 41/75
+p_pooled = (41+4)/(76+75)
+se = sqrt(p_pooled*(1-p_pooled)*(1/76+1/75))
+z = (phat_ear-phat_obs)/se
+p_value = 2*(1-pnorm(abs(z)))
+```
+The p-value < 0.001, which means that we have enough evidence to reject the null hypothesis. Thus, the prevalence of otorrhea for the ear drop group is different than the prevalence of otorrhea for the observation group.
+
+#10.38
+Null hypothesis: the proportion of hens whose pancreatic secretions increased was equal across saline and secretin.
+Alternative hypothesis: the proportion of hens whose pancreatic secretion increased was not equal across aline and secretin.
+We should perform the Fisher's exact test.
+```{r 4, message=FALSE, warning=FALSE}
+Hormone = read_dta("/Biostat/Biostatistics/PHL_1700/Data/Raw/HORMONE-1.DAT.dta")
+write.csv(Hormone, "Hormone.csv", row.names = FALSE)
+
+
+#Take the first measure of each hen for each hormone administered
+Hormone2 = Hormone %>% group_by(id, Hormone) %>% slice(1) %>% ungroup()
+
+#Since we're only comparing the percentage of hens whose pancreatic secretions were different when comparing saline to secretin, we'll only select Hormone types equal to saline and secretin
+Hormone2 = Hormone2 %>% filter(Hormone %in% c(1, 4))
+head(Hormone2)
+
+#Define a binary indicator for pancreatic secretion increase
+Hormone2$Panph_Increase = ifelse(Hormone2$Pansecpt - Hormone2$Pansecpr>0, "Increase", "No Increase")
+
+#Create a contingency table
+table_hen = table(Hormone2$Hormone, Hormone2$Panph_Increase)
+rownames(table_hen)= c("Saline", "Secretin")
+table_hen = addmargins(table_hen, FUN = sum)
+table_hen
+
+#Calculate expected cells
+c11 = 8*17/40
+c11
+c12 = 17*32/40
+c12
+c21 = 23*8/40
+c21
+c22 = 32*23/40
+c22
+
+#Since we have two expected cells less than 5, we could only use the Fisher's exact test.
+fisher_hen = fisher.test(table_hen, alternative = "two.sided")
+fisher_hen
+```
+Since the p-value is 0.893 which is larger than 0.05, we fail to reject the null hypothesis and conclude there is not enough evidence to support that the proportion of hens whose pancreatic secretions increased was equal across saline and secretin. I did the coding in R, and I've also tried in Stata, my two-sided p-value is 0.428 in Stata, which is still larger than 0.05.
+
+#10.104
+```{r 5, message=FALSE, warning=FALSE}
+p1 = 200/10^5
+p2 = p1*1.2
+alpha = 0.05
+power = 0.8
+sample_size = power.prop.test(p1 = p1, p2 = p2, sig.level = alpha, power = power, alternative = "two.sided")
+sample_size
+```
+There shall be 215368 women in each group.
+
+#10.105
+```{r 6, message=FALSE, warning=FALSE}
+n = 20000
+power2 = power.prop.test(p1 = p1, p2 = p2, sig.level = alpha, n = n, alternative = "two.sided")
+power2
+```
+The power is 0.134, while in Stata, the estimated power = 0.136.
+
+#10.125
+We can use the McNemar's Test
+```{r 7, message=FALSE, warning=FALSE}
+standard_correct = c(82, 5)
+standard_incorrect = c(10,3)
+screening_test = data.frame(standard_correct, standard_incorrect)
+row.names(screening_test) = c("new_correct", "new_incorrect")
+screening_test= as.matrix(screening_test)
+screening_test = addmargins(screening_test, FUN = sum)
+
+#We have 15 discordant pairs which is fewer than 20, therefore, we cannot use the large sample method.
+mcnemar_result = mcnemar.test(screening_test, correct = FALSE)
+mcnemar_result
+```
+The p-value is 0.3921,in Stata, the p-value is 0.3018.
