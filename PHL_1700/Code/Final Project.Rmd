@@ -1,0 +1,545 @@
+---
+title: "Final Project_1700"
+author: "Yue Zhang"
+date: "2024-11-22"
+output:
+  pdf_document: default
+  html_document: default
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include = FALSE}
+#This code chunk will tidy your knit PDF files, wrapping long code lines
+#For it to work, the "formatR" package needs to be installed
+#install.packages('formatR')
+knitr::opts_chunk$set(tidy.opts=list(width.cutoff=60), tidy=TRUE)
+
+```
+
+```{r packages, message = FALSE, warning = FALSE}
+setwd("E:/Biostat/Biostatistics/")
+getwd()
+library(tidyverse)
+library(lubridate)
+library(dplyr)
+library(ggthemes)
+library(ggplot2)
+library(readxl)
+library(lmtest)
+library(mfx)
+library(pROC)
+library(haven)
+library(car)
+library(PMCMRplus)
+library(VGAM)
+library(describedata)
+library(olsrr)
+
+mytheme = theme_clean(base_size = 12) +
+  theme(
+    axis.text = element_text(color = "black"),
+    legend.position = "right",
+    axis.text.x = element_text(
+      angle = 45,
+      vjust = 0.5,
+      hjust = 0.5
+    ),
+    plot.title = element_text(size = 12)
+  )
+theme_set(mytheme)
+
+```
+
+#Load Data
+```{r data, message=FALSE, warning=FALSE}
+bwt = read.csv("E:/Biostat/Biostatistics/PHL_1700/Data/Raw/Birthweight data Chen-1-1.csv")
+```
+
+#Data Exploration
+```{r exploration, message=FALSE, warning=FALSE}
+#Check Missing Data
+bwt %>% summarize(across(everything(), ~sum(is.na(.))))
+
+#Descriptive Statistics for Low Birth Weight
+summary_low = bwt %>% filter(low == 1) %>% summarize(
+  age_mean = mean(age, na.rm = TRUE),
+  age_sd = sd(age, na.rm = TRUE),
+  lwt_mean = mean(lwt, na.rm = TRUE),
+  lwt_sd = sd(lwt, na.rm = TRUE),
+  race_prop = list(prop.table(table(race))),
+  smoke_prop = mean(smoke == 1, na.rm = TRUE),
+  ptl_prop = mean(ptl == 1, na.rm = TRUE),
+  ht_prop = mean(ht == 1, na.rm = TRUE),
+  ui_prop = mean(ui == 1, na.rm = TRUE)
+)
+
+print(summary_low)
+print(summary_low$race_prop)
+
+low = bwt %>% filter(low == 1)
+cau = low %>% filter(race == 1)
+aa = low %>% filter(race == 2)
+other = low %>% filter(race ==3)
+smoke = low %>% filter(smoke ==1)
+pl = low %>% filter(ptl == 1)
+hy = low %>% filter(ht == 1)
+u = low %>% filter(ui == 1)
+
+high = bwt %>% filter(low == 0)
+cau2 = high %>% filter(race == 1)
+aa2 = high %>% filter(race == 2)
+other2 = high %>% filter(race ==3)
+smoke2 = high %>% filter(smoke ==1)
+pl2 = high %>% filter(ptl == 1)
+hy2 = high %>% filter(ht == 1)
+u2 = high %>% filter(ui == 1)
+
+#Descriptive Statistics for High Birth Weight
+summary_high = bwt %>% filter(low == 0) %>% summarize(
+  age_mean = mean(age, na.rm = TRUE),
+  age_sd = sd(age, na.rm = TRUE),
+  lwt_mean = mean(lwt, na.rm = TRUE),
+  lwt_sd = sd(lwt, na.rm = TRUE),
+  race_prop = list(prop.table(table(race))),
+  smoke_prop = mean(smoke == 1, na.rm = TRUE),
+  ptl_prop = mean(ptl == 1, na.rm = TRUE),
+  ht_prop = mean(ht == 1, na.rm = TRUE),
+  ui_prop = mean(ui == 1, na.rm = TRUE)
+)
+
+print(summary_high)
+print(summary_high$race_prop)
+
+#Histogram of Birth Weight
+ggplot(bwt, aes(x = bwt)) +
+  geom_histogram(binwidth = 150, fill = "gold", alpha = 0.7) +
+  ggtitle("Histogram of Birth Weight")
+
+
+#Histogram of Mother's Age
+ggplot(bwt, aes(x = age)) +
+  geom_histogram(binwidth = 5, fill = "lightblue", alpha = 0.7) +
+  ggtitle("Histogram of Mother's Age")
+
+#Histogram of Mother's Weight at Last Menstrual Period
+ggplot(bwt, aes(x = lwt)) +
+  geom_histogram(binwidth = 10, fill = "lightgreen", alpha = 0.7) +
+  ggtitle("Histogram of Mother's Weight")
+
+#Bar Plot of Race
+ggplot(bwt, aes(x = factor(race))) +
+  geom_bar(fill = "violetred1", alpha = 0.7) +
+  xlab("Race") +
+  ggtitle("Bar Plot of Race/Ethnic Group")
+
+#Bar Plot of Smoking Status
+ggplot(bwt, aes(x = factor(smoke))) +
+  geom_bar(fill = "orange", alpha = 0.7) +
+  xlab("Smoking Status") +
+  ggtitle("Bar Plot of Smoking During Pregnancy")
+
+#Bar Plot of History of Preterm Labor
+ggplot(bwt, aes(x = factor(ptl))) +
+  geom_bar(fill = "tomato1", alpha = 0.7) +
+  xlab("History of Preterm Labor") +
+  ggtitle("Bar Plot of History of Preterm Labor")
+
+#Identify Outliers
+ggplot(bwt, aes(x = "", y = age)) +
+  geom_boxplot(fill = "lightblue", alpha = 0.7) +
+  ggtitle("Boxplot of Mother's Age")
+
+ggplot(bwt, aes(x = "", y = lwt)) +
+  geom_boxplot(fill = "lightgreen", alpha = 0.7) +
+  ggtitle("Boxplot of Mother's Weight")
+
+ggplot(bwt, aes(x = "", y = bwt)) +
+  geom_boxplot(fill = "gold", alpha = 0.7) +
+  ggtitle("Boxplot of Birth Weight")
+```
+
+#Testing Simple Association
+```{r association, message=FALSE, warning=FALSE}
+#Perform a t-test comparing age between low birth weight (low = 1) and normal birth weight (low = 0)
+t.test(age ~ low, data = bwt)
+
+#Perform a t-test comparing weight between low birth weight (low = 1) and normal birth weight (low = 0)
+t.test(lwt ~ low, data = bwt)
+
+#Chi-square test for association between smoking status and birth weight 
+chisq.test(table(bwt$smoke, bwt$low))
+
+#Chi-square test for association between race and birth weight 
+chisq.test(table(bwt$race, bwt$low))
+
+bwt$is_caucasian = ifelse(bwt$race == 1, 1, 0)
+
+caucasian_low_table = table(bwt$is_caucasian, bwt$low)
+
+print(caucasian_low_table)
+
+chisq_result = chisq.test(caucasian_low_table)
+chisq_result
+
+bwt$is_aa = ifelse(bwt$race == 2, 1, 0)
+
+aa_low_table = table(bwt$is_aa, bwt$low)
+
+print(aa_low_table)
+
+chisq_result2 = chisq.test(aa_low_table)
+chisq_result2
+
+bwt$is_o = ifelse(bwt$race == 3, 1, 0)
+
+o_low_table = table(bwt$is_o, bwt$low)
+
+print(o_low_table)
+
+chisq_result3 = chisq.test(o_low_table)
+chisq_result3
+
+
+
+#Chi-square test for association between preterm labor and birth weight 
+chisq.test(table(bwt$ptl, bwt$low))
+
+#Chi-square test for association between history of hypertension and birth weight 
+chisq.test(table(bwt$ht, bwt$low))
+
+#Chi-square test for association between history of uterine irritability and birth weight 
+chisq.test(table(bwt$ui, bwt$low))
+```
+
+#Linear Regression
+```{r regression, message=FALSE, warning=FALSE}
+bwt_model = lm(bwt ~ age + lwt + race + smoke + ptl + ht + ui, data = bwt)
+summary(bwt_model)
+sr = rstudent(bwt_model)
+
+#Scatter Plot of Studentized Residuals vs. Age
+ggplot(bwt, aes(x = age, y = sr)) +
+  geom_point(color = "blue") +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Scatter Plot of Residuals vs. Age",
+       x = "Age",
+       y = "Residuals") 
+
+#Scatter Plot of Studentized Residuals vs. Weight
+ggplot(bwt, aes(x = lwt, y = sr)) +
+  geom_point(color = "blue") +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Scatter Plot of Residuals vs. Weight",
+       x = "Weight",
+       y = "Residuals") 
+
+#Scatter Plot of Studentized Residuals vs. Smoke
+ggplot(bwt, aes(x = smoke, y = sr)) +
+  geom_point(color = "blue") +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Scatter Plot of Residuals vs. Smoke",
+       x = "Smoke",
+       y = "Residuals") 
+
+#Scatter Plot of Studentized Residuals vs. Race
+ggplot(bwt, aes(x = race, y = sr)) +
+  geom_point(color = "blue") +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Scatter Plot of Residuals vs. Race",
+       x = "Race",
+       y = "Residuals") 
+
+#Scatter Plot of Studentized Residuals vs. Preterm Labor
+ggplot(bwt, aes(x = ptl, y = sr)) +
+  geom_point(color = "blue") +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Scatter Plot of Residuals vs. Preterm Labor",
+       x = "Preterm Labor",
+       y = "Residuals") 
+
+#Scatter Plot of Studentized Residuals vs. Hypertension
+ggplot(bwt, aes(x = ht, y = sr)) +
+  geom_point(color = "blue") +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Scatter Plot of Residuals vs. Hypertension",
+       x = "Hypertension",
+       y = "Residuals")
+
+#Scatter Plot of Studentized Residuals vs. Uterine Irritability
+ggplot(bwt, aes(x = ui, y = sr)) +
+  geom_point(color = "blue") +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Scatter Plot of Residuals vs. Uterine Irritability",
+       x = "Uterine Irritability",
+       y = "Residuals")
+
+#Studentized Residuals vs. Fitted Value
+ggplot(data = data.frame(Fitted = fitted(bwt_model), Residuals = sr),
+       aes(x = Fitted, y = Residuals)) +
+  geom_point() +
+  geom_hline(yintercept = c(-2, 2), linetype = "dashed", color = "red") +
+  labs(title = "Studentized Residuals vs Fitted Values",
+       x = "Fitted Values",
+       y = "Studentized Residuals")
+
+#Q-Q Plot for Studentized Residuals
+qq_data = data.frame(
+  Theoretical = qqnorm(sr, plot.it = FALSE)$x,
+  Sample = qqnorm(sr, plot.it = FALSE)$y
+)
+
+ggplot(qq_data, aes(x = Theoretical, y = Sample)) +
+  geom_point() +
+  geom_abline(
+    intercept = 0,
+    slope = 1,
+    color = "red",
+    linetype = "dashed"
+  ) +
+  labs(title = "Q-Q Plot of Studentized Residuals", x = "Theoretical Quantiles", y = "Studentized Residuals") 
+
+#Studentized Residuals vs. Leverage Plot
+h = hatvalues(bwt_model)
+leverage_data = data.frame(Leverage = h, StudentizedResiduals = sr)
+
+
+ggplot(leverage_data, aes(x = Leverage, y = StudentizedResiduals)) +
+  geom_point() +
+  geom_hline(yintercept = 0,
+             color = "red",
+             linetype = "dashed") +
+  geom_smooth(
+    method = "loess",
+    se = FALSE,
+    color = "blue",
+    linetype = "dotted"
+  ) +
+  labs(title = "Studentized Residuals vs Leverage Plot", x = "Leverage", y = "Studentized Residuals")
+par(mfrow = c(2,2), mar=c(2,2,2,2))
+plot(bwt_model, cex.axis = 1, cex.lab = 1)
+```
+
+#Diagnostic Checks
+```{r outliers, message=FALSE, warning=FALSE}
+df = dffits(bwt_model)
+observations = names(sr)
+n = nrow(bwt)
+for (observation in observations){
+  obs_sr = sr[observation]
+  p_value = 2*pt(obs_sr, (n-8))
+  if(p_value < 0.05){
+    print(paste(observation, "is an outlier"))
+  }
+}
+p = length(coef(bwt_model))
+avgLeverage = 2*p/n
+highLeverage = which(h > avgLeverage)
+influential = which(df > 2*sqrt(p/n))
+print(paste("High Leverage Point:", toString(highLeverage)))
+print(paste("Influential:", toString(influential)))
+```
+As results shown, we will remove all the outliers and influential points.Then do the linear regression again to see whether the model improved.
+
+#Refit the Model
+```{r regression2, message=FALSE, warning=FALSE}
+bwt_new = bwt[-c(28, 48, 60, 62, 68, 69, 106, 148, 161, 183, 201, 226, 232, 270, 274, 292, 299, 316, 364, 382, 383, 390, 411, 433, 436, 457, 497, 499, 513, 519, 536, 549, 550, 556, 608, 632, 693, 704, 706, 709, 710, 823, 854, 867, 887, 890, 892, 904, 906, 914, 930, 946, 952, 962, 964), ]
+
+bwt_model2 = lm(bwt ~ age + lwt + race + smoke + ptl + ht + ui, data = bwt_new)
+summary(bwt_model2)
+
+par(mfrow = c(2,2), mar=c(2,2,2,2))
+plot(bwt_model2, cex.axis = 1, cex.lab = 1)
+olsrr::ols_step_best_subset(bwt_model2)
+
+#Reduced model: bwt ~ lwt + race + smoke + ht + ui
+bwt_model3 = lm(bwt ~ lwt + race + smoke + ht + ui, data = bwt_new)
+summary(bwt_model3)
+
+par(mfrow = c(2,2), mar=c(2,2,2,2))
+plot(bwt_model3, cex.axis = 1, cex.lab = 1)
+sr2 = rstudent(bwt_model3)
+
+#Scatter Plot of Studentized Residuals vs. Weight
+ggplot(bwt_new, aes(x = lwt, y = sr2)) +
+  geom_point(color = "blue") +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Scatter Plot of Residuals vs. Weight",
+       x = "Weight",
+       y = "Residuals") 
+
+#Scatter Plot of Studentized Residuals vs. Smoke
+ggplot(bwt_new, aes(x = smoke, y = sr2)) +
+  geom_point(color = "blue") +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Scatter Plot of Residuals vs. Smoke",
+       x = "Smoke",
+       y = "Residuals") 
+
+#Scatter Plot of Studentized Residuals vs. Race
+ggplot(bwt_new, aes(x = race, y = sr2)) +
+  geom_point(color = "blue") +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Scatter Plot of Residuals vs. Race",
+       x = "Race",
+       y = "Residuals") 
+
+#Scatter Plot of Studentized Residuals vs. Hypertension
+ggplot(bwt_new, aes(x = ht, y = sr2)) +
+  geom_point(color = "blue") +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Scatter Plot of Residuals vs. Hypertension",
+       x = "Hypertension",
+       y = "Residuals")
+
+#Scatter Plot of Studentized Residuals vs. Uterine Irritability
+ggplot(bwt_new, aes(x = ui, y = sr2)) +
+  geom_point(color = "blue") +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Scatter Plot of Residuals vs. Uterine Irritability",
+       x = "Uterine Irritability",
+       y = "Residuals")
+
+#Studentized Residuals vs. Fitted Value
+ggplot(data = data.frame(Fitted = fitted(bwt_model3), Residuals = sr2),
+       aes(x = Fitted, y = Residuals)) +
+  geom_point() +
+  geom_hline(yintercept = c(-2, 2), linetype = "dashed", color = "red") +
+  labs(title = "Studentized Residuals vs Fitted Values",
+       x = "Fitted Values",
+       y = "Studentized Residuals")
+
+#Q-Q Plot for Studentized Residuals
+qq_data2 = data.frame(
+  Theoretical = qqnorm(sr2, plot.it = FALSE)$x,
+  Sample = qqnorm(sr2, plot.it = FALSE)$y
+)
+
+ggplot(qq_data2, aes(x = Theoretical, y = Sample)) +
+  geom_point() +
+  geom_abline(
+    intercept = 0,
+    slope = 1,
+    color = "red",
+    linetype = "dashed"
+  ) +
+  labs(title = "Q-Q Plot of Studentized Residuals", x = "Theoretical Quantiles", y = "Studentized Residuals") 
+
+#Studentized Residuals vs. Leverage Plot
+h2 = hatvalues(bwt_model3)
+leverage_data2 = data.frame(Leverage = h2, StudentizedResiduals = sr2)
+
+
+ggplot(leverage_data2, aes(x = Leverage, y = StudentizedResiduals)) +
+  geom_point() +
+  geom_hline(yintercept = 0,
+             color = "red",
+             linetype = "dashed") +
+  geom_smooth(
+    method = "loess",
+    se = FALSE,
+    color = "blue",
+    linetype = "dotted"
+  ) +
+  labs(title = "Studentized Residuals vs Leverage Plot", x = "Leverage", y = "Studentized Residuals")
+
+```
+
+#Variable Transformation
+```{r transformation, message=FALSE, warning=FALSE}
+#Define whether the independent variable needs transformation
+gladder(bwt_new$bwt)
+
+#Based on the plot above, we would choose sqrt transformation for bwt
+bwt_model4 = lm(sqrt(bwt) ~ lwt + race + smoke + ht + ui, data = bwt_new)
+summary(bwt_model4)
+
+par(mfrow = c(2,2), mar=c(2,2,2,2))
+plot(bwt_model4, cex.axis = 1, cex.lab = 1)
+
+sr3 = rstudent(bwt_model4)
+
+#Scatter Plot of Studentized Residuals vs. Weight
+ggplot(bwt_new, aes(x = lwt, y = sr3)) +
+  geom_point(color = "blue") +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Scatter Plot of Residuals vs. Weight",
+       x = "Weight",
+       y = "Residuals") 
+
+#Scatter Plot of Studentized Residuals vs. Smoke
+ggplot(bwt_new, aes(x = smoke, y = sr3)) +
+  geom_point(color = "blue") +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Scatter Plot of Residuals vs. Smoke",
+       x = "Smoke",
+       y = "Residuals") 
+
+#Scatter Plot of Studentized Residuals vs. Race
+ggplot(bwt_new, aes(x = race, y = sr3)) +
+  geom_point(color = "blue") +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Scatter Plot of Residuals vs. Race",
+       x = "Race",
+       y = "Residuals") 
+
+#Scatter Plot of Studentized Residuals vs. Hypertension
+ggplot(bwt_new, aes(x = ht, y = sr3)) +
+  geom_point(color = "blue") +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Scatter Plot of Residuals vs. Hypertension",
+       x = "Hypertension",
+       y = "Residuals")
+
+#Scatter Plot of Studentized Residuals vs. Uterine Irritability
+ggplot(bwt_new, aes(x = ui, y = sr3)) +
+  geom_point(color = "blue") +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(title = "Scatter Plot of Residuals vs. Uterine Irritability",
+       x = "Uterine Irritability",
+       y = "Residuals")
+
+#Studentized Residuals vs. Fitted Value
+ggplot(data = data.frame(Fitted = fitted(bwt_model4), Residuals = sr3),
+       aes(x = Fitted, y = Residuals)) +
+  geom_point() +
+  geom_hline(yintercept = c(-2, 2), linetype = "dashed", color = "red") +
+  labs(title = "Studentized Residuals vs Fitted Values",
+       x = "Fitted Values",
+       y = "Studentized Residuals")
+
+#Q-Q Plot for Studentized Residuals
+qq_data3 = data.frame(
+  Theoretical = qqnorm(sr3, plot.it = FALSE)$x,
+  Sample = qqnorm(sr3, plot.it = FALSE)$y
+)
+
+ggplot(qq_data3, aes(x = Theoretical, y = Sample)) +
+  geom_point() +
+  geom_abline(
+    intercept = 0,
+    slope = 1,
+    color = "red",
+    linetype = "dashed"
+  ) +
+  labs(title = "Q-Q Plot of Studentized Residuals", x = "Theoretical Quantiles", y = "Studentized Residuals") 
+
+#Studentized Residuals vs. Leverage Plot
+h3 = hatvalues(bwt_model4)
+leverage_data3 = data.frame(Leverage = h3, StudentizedResiduals = sr3)
+
+
+ggplot(leverage_data3, aes(x = Leverage, y = StudentizedResiduals)) +
+  geom_point() +
+  geom_hline(yintercept = 0,
+             color = "red",
+             linetype = "dashed") +
+  geom_smooth(
+    method = "loess",
+    se = FALSE,
+    color = "blue",
+    linetype = "dotted"
+  ) +
+  labs(title = "Studentized Residuals vs Leverage Plot", x = "Leverage", y = "Studentized Residuals")
+```
+
