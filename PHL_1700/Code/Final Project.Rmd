@@ -18,7 +18,6 @@ knitr::opts_chunk$set(tidy.opts=list(width.cutoff=60), tidy=TRUE)
 ```
 
 ```{r packages, message = FALSE, warning = FALSE}
-setwd("E:/Biostat/Biostatistics/")
 getwd()
 library(tidyverse)
 library(lubridate)
@@ -53,7 +52,7 @@ theme_set(mytheme)
 
 #Load Data
 ```{r data, message=FALSE, warning=FALSE}
-bwt = read.csv("E:/Biostat/Biostatistics/PHL_1700/Data/Raw/Birthweight data Chen-1-1.csv")
+bwt = read.csv("/Users/yuezhang/Documents/Biostat/Biostatistics/PHL_1700/Data/Raw/Birthweight data Chen-1-1.csv")
 ```
 
 #Data Exploration
@@ -116,7 +115,6 @@ ggplot(bwt, aes(x = bwt)) +
   geom_histogram(binwidth = 150, fill = "gold", alpha = 0.7) +
   ggtitle("Histogram of Birth Weight")
 
-
 #Histogram of Mother's Age
 ggplot(bwt, aes(x = age)) +
   geom_histogram(binwidth = 5, fill = "lightblue", alpha = 0.7) +
@@ -144,6 +142,18 @@ ggplot(bwt, aes(x = factor(ptl))) +
   geom_bar(fill = "tomato1", alpha = 0.7) +
   xlab("History of Preterm Labor") +
   ggtitle("Bar Plot of History of Preterm Labor")
+
+#Bar Plot of History of Hypertension
+ggplot(bwt, aes(x = factor(ht))) +
+  geom_bar(fill = "deeppink", alpha = 0.7) +
+  xlab("History of Hypertension") +
+  ggtitle("Bar Plot of History of Hypertension")
+
+#Bar Plot of History of Uterine Irritability 
+ggplot(bwt, aes(x = factor(ui))) +
+  geom_bar(fill = "darkslateblue", alpha = 0.7) +
+  xlab("History of Uterine Irritability ") +
+  ggtitle("Bar Plot of History of Uterine Irritability ")
 
 #Identify Outliers
 ggplot(bwt, aes(x = "", y = age)) +
