@@ -1,0 +1,661 @@
+---
+title: "PH1820 Group Project"
+author: "Yue Zhang"
+date: "2025-04-04"
+output:
+  html_document: default
+  pdf_document: default
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include = FALSE}
+#This code chunk will tidy your knit PDF files, wrapping long code lines
+#For it to work, the "formatR" package needs to be installed
+#install.packages('formatR')
+knitr::opts_chunk$set(tidy.opts=list(width.cutoff=60), tidy=TRUE)
+
+```
+
+```{r packages, message = FALSE, warning = FALSE}
+getwd()
+library(tidyverse)
+library(lubridate)
+library(dplyr)
+library(ggthemes)
+library(ggplot2)
+library(readxl)
+library(lmtest)
+library(mfx)
+library(pROC)
+library(haven)
+library(car)
+library(PMCMRplus)
+library(VGAM)
+library(describedata)
+library(olsrr)
+library(ggpubr)
+library(GGally)
+library(knitr)
+library(car)
+library(MASS)
+library(faraway)
+library(corrplot)
+library(ggcorrplot)
+library(goftest)
+```
+
+#Research Question:
+#Predictive modeling for life expectancy - is there a significant difference in life expectancy between developed and developing countries?
+
+#Load Data
+```{r data, message=FALSE, warning=FALSE}
+life = read.csv("/Users/yuezhang/Documents/Biostat/Biostatistics/PH1820/Data/Raw/Life Expectancy Data.csv")
+```
+
+#EDA
+```{r eda, message=FALSE, warning=FALSE}
+#Check Missing Data
+life %>% summarize(across(everything(), ~sum(is.na(.))))
+str(life)
+
+life = life[, c(
+  "Life.expectancy",
+  "Status",
+  "Adult.Mortality",
+  "infant.deaths",
+  "Alcohol",
+  "BMI",
+  "thinness..1.19.years",
+  "thinness.5.9.years",
+  "Schooling",
+  "GDP",
+  "Income.composition.of.resources"
+)]
+
+life = life %>%
+  drop_na() %>%
+  rename(
+    "Life_expectancy" = "Life.expectancy",
+    "Adult_Mortality" = "Adult.Mortality",
+    "Infant_deaths" = "infant.deaths",
+    "Thinness_10_19_years" = "thinness..1.19.years",
+    "Thinness_5_9_years" = "thinness.5.9.years",
+    "Income" = "Income.composition.of.resources"
+  )
+#Convert the adult mortality, under five deaths, and infant deaths into % as in Kaggle they're deaths per 1000
+life = life %>% mutate(
+  Adult_Mortality = Adult_Mortality / 10,
+  Infant_deaths = Infant_deaths / 10
+)
+
+life$Status = as.factor(life$Status)
+
+#Descriptive Statistics for variables
+life %>%
+  summarise(across(where(is.numeric), list(
+    mean = ~mean(., na.rm = TRUE),
+    sd   = ~sd(., na.rm = TRUE),
+    min  = ~min(., na.rm = TRUE),
+    max  = ~max(., na.rm = TRUE),
+    missing = ~sum(is.na(.))
+  ))) %>%
+  pivot_longer(cols = everything(),
+               names_to = c("Variable", "Statistic"),
+               names_pattern = "(.*)_(.*)") %>%
+  pivot_wider(names_from = Statistic, values_from = value)
+
+#Histograms
+life %>% select_if(is.numeric) %>% 
+  pivot_longer(cols = everything()) %>%
+  ggplot(aes(x = value)) +
+  geom_histogram(bins = 20, fill = "skyblue", color = "black") +
+  facet_wrap(~ name, scales = "free") +
+  theme_minimal() +
+  ggtitle("Histograms of Numeric Variables")
+
+life %>% select_if(is.factor) %>% 
+  pivot_longer(cols = everything()) %>%
+  ggplot(aes(x = value)) +
+  geom_bar(fill = "gold", color = "black") +
+  facet_wrap(~ name, scales = "free") +
+  theme_minimal() +
+  ggtitle("Histograms of Categorical Variables")
+
+#Boxplots
+life %>%
+  dplyr::select(Life_expectancy, Adult_Mortality, Infant_deaths) %>% 
+  pivot_longer(cols = everything()) %>%
+  ggplot(aes(x = "", y = value)) +
+  geom_boxplot(fill = "lightgreen", alpha = 0.6) +
+  facet_wrap(~ name, scales = "free", nrow = 1) +
+  theme_minimal() +
+  ggtitle("Boxplots of Numeric Variables") +
+  theme(
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    strip.text = element_text(size = 12),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+
+life %>%
+  dplyr::select(Alcohol, BMI, GDP, Income) %>% 
+  pivot_longer(cols = everything()) %>%
+  ggplot(aes(x = "", y = value)) +
+  geom_boxplot(fill = "lightgreen", alpha = 0.6) +
+  facet_wrap(~ name, scales = "free", nrow = 1) +
+  theme_minimal() +
+  ggtitle("Boxplots of Numeric Variables") +
+  theme(
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    strip.text = element_text(size = 12),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+
+life %>%
+  dplyr::select(Thinness_5_9_years, Thinness_10_19_years, Schooling) %>% 
+  pivot_longer(cols = everything()) %>%
+  ggplot(aes(x = "", y = value)) +
+  geom_boxplot(fill = "lightgreen", alpha = 0.6) +
+  facet_wrap(~ name, scales = "free", nrow = 1) +
+  theme_minimal() +
+  ggtitle("Boxplots of Numeric Variables") +
+  theme(
+    axis.text.x = element_blank(),
+    axis.title.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    strip.text = element_text(size = 12),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+
+ggplot(life, aes(x = Status, y = Life_expectancy, fill = Status)) + 
+  geom_boxplot(alpha = 0.6) + 
+  theme_minimal() +
+  ggtitle("Boxplots of Life Expectancy by Status")
+
+#Scatterplot
+life_numeric = life %>% select_if(is.numeric)
+pairs(life_numeric, main = "Scatterplot Matrix of Numeric Variables")
+
+#Correlation
+cor_matrix = cor(life_numeric, method = "spearman", use = "pairwise.complete.obs")
+print(cor_matrix)
+
+ggcorrplot(cor_matrix, method = "circle", 
+           lab = TRUE, lab_size = 3, colors = c("tomato", "white", "dodgerblue3"), 
+           title = "Spearman Correlation Matrix", 
+           ggtheme = theme_minimal()) +
+  theme(text = element_text(size = 10))
+```
+
+#Fit preliminary model
+```{r preliminary, message=FALSE, warning=FALSE}
+model_pre = lm(data = life, life$Life_expectancy ~ .)
+summary(model_pre)
+```
+
+#Preliminary Diagnostics
+```{r preliminary diagnostics, message=FALSE, warning=FALSE}
+#Linearity
+#Residuals vs. x
+fitted_vals = fitted(model_pre)
+residuals = resid(model_pre)
+
+predictors = c("Adult_Mortality", "Alcohol", "BMI", "Infant_deaths", 
+               "Schooling", "Thinness_10_19_years", "Thinness_5_9_years", "GDP", "Income")
+
+for (var in predictors) {
+  p = ggplot(life, aes(x = .data[[var]], y = residuals)) +
+    geom_point(alpha = 0.5) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+    ggtitle(paste("Residuals vs", var)) +
+    theme_minimal() +
+    ylab("Residuals") +
+    xlab(var)
+  
+  print(p)
+}
+
+# Residuals vs Fitted Plot
+ggplot(data = NULL, aes(x = fitted_vals, y = residuals)) +
+  geom_point(alpha = 0.6, color = "black") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(x = "Fitted Values", y = "Residuals", title = "Residuals vs. Fitted Values") +
+  theme_minimal()
+#Linear
+
+#Homoscedasticity
+bptest(model_pre)
+#Non constant variance. Also the residuals vs. fitted has a funnel shape
+
+#Normality, since this is a large sample test, the Shapiro Wilk test will be sensitive, we will use Anderson-Darling test instead
+goftest::ad.test(residuals)
+# Q-Q Plot of residuals
+ggplot(data = NULL, aes(sample = residuals)) +
+  stat_qq() +
+  stat_qq_line(color = "red") +
+  labs(title = "Q-Q Plot of Residuals") +
+  theme_minimal()
+
+#Not normally distributed
+
+#VIF
+vif(model_pre)
+#Some Multicollinearity, as the thinness_5_9 and thinness_10_19 vif are larger than 5 and thinness_5_9 is a non-significant variable
+
+#Potential Outliers
+resid_stud = rstudent(model_pre)
+ggplot(data = NULL, aes(x = fitted_vals, y = resid_stud)) +
+  geom_point(alpha = 0.5) +
+  geom_hline(yintercept = c(-2, 2), color = "red", linetype = "dashed") +
+  geom_hline(yintercept = 0, color = "black") +
+  labs(
+    title = "Studentized Residuals vs Fitted Values",
+    x = "Fitted Values",
+    y = "Studentized Residuals"
+  ) +
+  theme_minimal()
+
+potential_outliers = which(abs(resid_stud) > 2) 
+print(potential_outliers)
+```
+
+```{r clean, message = FALSE, warning = FALSE}
+life = life[-potential_outliers,]
+#Remove thinness_5_9 due to high vif and non significant p value
+life$Thinness_5_9_years = NULL
+model_2 = lm(data = life, life$Life_expectancy ~ .)
+summary(model_2)
+
+#Residuals vs. x
+fitted_vals2 = fitted(model_2)
+residuals2 = resid(model_2)
+
+predictors2 = c("Adult_Mortality", "Alcohol", "BMI", "Infant_deaths", 
+               "Schooling", "Thinness_10_19_years", "GDP", "Income")
+
+for (var in predictors2) {
+  p = ggplot(life, aes(x = .data[[var]], y = residuals2)) +
+    geom_point(alpha = 0.5) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+    ggtitle(paste("Residuals vs", var)) +
+    theme_minimal() +
+    ylab("Residuals") +
+    xlab(var)
+  
+  print(p)
+}
+
+# Residuals vs Fitted Plot
+ggplot(data = NULL, aes(x = fitted_vals2, y = residuals2)) +
+  geom_point(alpha = 0.6, color = "black") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(x = "Fitted Values", y = "Residuals", title = "Residuals vs. Fitted Values") +
+  theme_minimal()
+#Linear
+
+#Homoscedasticity
+bptest(model_2)
+#Non constant variance. Also the residuals vs. fitted has a funnel shape
+
+#Normality, since this is a large sample test, the Shapiro Wilk test will be sensitive, we will use Anderson-Darling test instead
+goftest::ad.test(residuals2)
+# Q-Q Plot of residuals
+ggplot(data = NULL, aes(sample = residuals2)) +
+  stat_qq() +
+  stat_qq_line(color = "red") +
+  labs(title = "Q-Q Plot of Residuals") +
+  theme_minimal()
+
+#Not normally distributed
+```
+
+#Transformation
+```{r transformation, message=FALSE, warning=FALSE}
+#Boxcox
+b = boxcox(model_2)
+lambda = b$x[which.max(b$y)]
+lambda
+life$Life_expectancy_bc = (life$Life_expectancy^2-1)/2
+
+model_bc = lm(data = life, Life_expectancy_bc ~ .-Life_expectancy )
+summary(model_bc)
+par(mfrow = c(2,2))
+plot(model_bc, cex.axis = 1.2, cex.lab = 1.5)
+```
+
+#Diagnostics 
+```{r diagnostics2, message=FALSE, warning=FALSE}
+#Linearity
+fitted_vals_bc = fitted(model_bc)
+residuals_bc = resid(model_bc)
+
+for (var in predictors2) {
+  p = ggplot(life, aes(x = .data[[var]], y = residuals_bc)) +
+    geom_point(alpha = 0.5) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "red")+
+    ggtitle(paste("Residuals vs", var)) +
+    theme_minimal() +
+    ylab("Residuals") +
+    xlab(var)
+  
+  print(p)
+}
+
+# Residuals vs Fitted Plot
+ggplot(data = NULL, aes(x = fitted_vals_bc, y = residuals_bc)) +
+  geom_point(alpha = 0.6, color = "black") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(x = "Fitted Values", y = "Residuals", title = "Residuals vs. Fitted Values") +
+  theme_minimal()
+#Linear
+
+#Homoscedasticity
+bptest(model_bc)
+#Non constant variance. Also the residuals vs. fitted has a funnel shape
+
+#Normality
+goftest::ad.test(residuals_bc)
+# Q-Q Plot of residuals
+ggplot(data = NULL, aes(sample = residuals_bc)) +
+  stat_qq() +
+  stat_qq_line(color = "red") +
+  labs(title = "Q-Q Plot of Residuals") +
+  theme_minimal()
+
+#Not normally distributed
+
+#VIF
+vif(model_bc)
+#No Multicollinearity
+```
+
+#Transformation again
+```{r tran2, message = FALSE, warning = FALSE}
+life$Adult_Mortality_c = scale(life$Adult_Mortality, center = TRUE, scale = FALSE)
+life$Adult_Mortality_sq = life$Adult_Mortality_c^2
+
+model_3 = lm(
+  data = life,
+  Life_expectancy_bc ~
+    Status +
+    Adult_Mortality_c + Adult_Mortality_sq +
+    BMI +
+    Schooling +
+    Infant_deaths +
+    Alcohol +
+    GDP +
+    Income +
+    Thinness_10_19_years
+)
+summary(model_3)
+```
+
+#Diagnostics
+```{r diagnostics3, message=FALSE, warning=FALSE}
+#Linearity
+fitted_vals3 = fitted(model_3)
+residuals3 = resid(model_3)
+
+predictors3 = c("Adult_Mortality_c", "Alcohol", "BMI", "Infant_deaths", 
+               "Schooling", "Thinness_10_19_years", "GDP", "Income")
+
+for (var in predictors3) {
+  p = ggplot(life, aes(x = .data[[var]], y = residuals3)) +
+    geom_point(alpha = 0.5) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "red")+
+    ggtitle(paste("Residuals vs", var)) +
+    theme_minimal() +
+    ylab("Residuals") +
+    xlab(var)
+  
+  print(p)
+}
+
+
+ggplot(data = NULL, aes(x = life$Adult_Mortality_sq, y = residuals3)) +
+  geom_point(alpha = 0.5) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  theme_minimal() +
+  ggtitle("Residuals vs. Adult_Mortality_sq") +
+  xlab("Adult_Mortality_sq") +
+  ylab("Residuals")
+
+# Residuals vs Fitted Plot
+ggplot(data = NULL, aes(x = fitted_vals3, y = residuals3)) +
+  geom_point(alpha = 0.6, color = "black") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(x = "Fitted Values", y = "Residuals", title = "Residuals vs. Fitted Values") +
+  theme_minimal()
+#Linear
+
+#Homoscedasticity
+bptest(model_3)
+#Non constant variance. Also the residuals vs. fitted has a funnel shape
+
+#Normality
+goftest::ad.test(residuals3)
+# Q-Q Plot of residuals
+ggplot(data = NULL, aes(sample = residuals3)) +
+  stat_qq() +
+  stat_qq_line(color = "red") +
+  labs(title = "Q-Q Plot of Residuals") +
+  theme_minimal()
+
+#Not normally distributed
+```
+
+#Weighted Leasted Squares adjusting for non-constant variance
+```{r wls, message = FALSE, warning = FALSE}
+weights = 1/fitted(lm(abs(residuals3) ~ fitted_vals3))^2
+model_wls = lm(
+  data = life,
+  Life_expectancy_bc ~
+    Status +
+    Adult_Mortality_c + Adult_Mortality_sq +
+    BMI +
+    Schooling +
+    Infant_deaths +
+    Alcohol +
+    GDP +
+    Income +
+    Thinness_10_19_years,
+  weights = weights
+)
+summary(model_wls)
+```
+
+#Diagnostics
+```{r diagnostics4, message=FALSE, warning=FALSE}
+#Linearity
+fitted_vals_wls = fitted(model_wls)
+residuals_wls = resid(model_wls)
+
+for (var in predictors3) {
+  p = ggplot(life, aes(x = .data[[var]], y = residuals_wls)) +
+    geom_point(alpha = 0.5) +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "red")+
+    ggtitle(paste("Residuals vs", var)) +
+    theme_minimal() +
+    ylab("Residuals") +
+    xlab(var)
+  
+  print(p)
+}
+
+# Residuals vs Fitted Plot
+ggplot(data = NULL, aes(x = fitted_vals_wls, y = residuals_wls)) +
+  geom_point(alpha = 0.6, color = "black") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(x = "Fitted Values", y = "Residuals", title = "Residuals vs. Fitted Values") +
+  theme_minimal()
+#Linear
+
+#Homoscedasticity
+bptest(model_wls)
+#Non constant variance. Also the residuals vs. fitted has a funnel shape
+
+#Normality
+goftest::ad.test(residuals_wls)
+# Q-Q Plot of residuals
+ggplot(data = NULL, aes(sample = residuals_wls)) +
+  stat_qq() +
+  stat_qq_line(color = "red") +
+  labs(title = "Q-Q Plot of Residuals") +
+  theme_minimal()
+#Normality applies
+```
+
+#Check outliers and influential points
+```{r outliers, message = FALSE, warning = FALSE}
+#Studentized deleted residuals. Threshold using Bonferroni-adjusted p-values
+stu_del_resid = rstudent(model_wls)
+n = nrow(life)
+alpha = 0.05
+t_critical = qt(1-alpha/(2*n), df = n-length(coefficients(model_wls)))
+stu_del_resid_df = data.frame(ID = as.numeric(rownames(model_wls$model)), rstudent = stu_del_resid)
+out_stud = which(abs(stu_del_resid) > t_critical)
+ggplot(stu_del_resid_df, aes(x = ID, y = rstudent)) +
+  geom_point(alpha = 0.6) +
+  geom_hline(yintercept = c(-t_critical, t_critical), color = "red", linetype = "dashed") +
+  geom_text(aes(label = ifelse(abs(stu_del_resid) > t_critical, ID, "")),
+            vjust = -0.5, size = 3, color = "black") +
+  theme_minimal() +
+  ggtitle("Studentized Deleted Residuals with t Critical Bounds") +
+  ylab("Studentized Deleted Residuals") +
+  xlab("Observation ID")
+
+
+#High leverage
+h = hatvalues(model_wls)
+p = length(coef(model_wls))
+avgLeverage = 2*p/n
+highLeverage = which(h > avgLeverage)
+
+leverage_df = data.frame(
+  ID = as.numeric(rownames(model_wls$model)),
+  leverage = h
+)
+
+ggplot(leverage_df, aes(x = ID, y = leverage)) +
+  geom_point(color = "blue") +
+  geom_hline(yintercept = avgLeverage, color = "red", linetype = "dashed") +
+  geom_text(aes(label = ifelse(leverage > avgLeverage, ID, "")),
+            vjust = -0.5, size = 3, color = "black") +
+  theme_minimal() +
+  labs(
+    title = "Leverage Values with Threshold",
+    x = "Observation ID",
+    y = "Leverage"
+  )
+
+#Influential points for prediction
+dffits_val = dffits(model_wls)
+cd_val = cooks.distance(model_wls)
+dffits_threshold = 2*sqrt(p/n)
+cooks_threshold = qf(0.5, df1 = p, df2 = n-p)
+
+out_dffits = which(abs(dffits_val) > dffits_threshold)
+dffits_df = data.frame(
+  ID  = as.numeric(rownames(model_wls$model)),
+  DFFITS = dffits_val
+)
+ggplot(dffits_df, aes(x = ID, y = DFFITS)) +
+  geom_point(color = "blue") +
+  geom_hline(yintercept = c(-dffits_threshold, dffits_threshold), linetype = "dashed", color = "red") +
+  geom_text(aes(label = ifelse(abs(DFFITS) > dffits_threshold, ID, "")),
+            vjust = -0.5, size = 3) +
+  theme_minimal() +
+  labs(
+    title = "DFFITS with Threshold",
+    x = "Observation ID",
+    y = "DFFITS"
+  )
+
+out_cd = which(cd_val > cooks_threshold)
+cooks_df = data.frame(
+  CooksD = cd_val,
+  ID = as.numeric(rownames(model_wls$model))
+)
+ggplot(cooks_df, aes(x = ID, y = CooksD)) +
+  geom_point(color = "blue") +
+  geom_hline(yintercept = cooks_threshold, linetype = "dashed", color = "red") +
+  geom_text(aes(label = ifelse(CooksD > cooks_threshold, ID, "")),
+            vjust = -0.5, size = 3) +
+  theme_minimal() +
+  labs(
+    title = "Cook's Distance with Threshold",
+    x = "Observation ID",
+    y = "Cook's Distance"
+  )
+```
+
+#Removing influential points and outliers
+```{r removal, message = FALSE, warning = FALSE}
+outliers = unique(c(out_dffits, out_cd, out_stud, highLeverage))
+life_clean = life[-outliers, ]
+
+model_3c = lm(
+  data = life_clean,
+  Life_expectancy_bc ~
+    Status +
+    Adult_Mortality_c + Adult_Mortality_sq +
+    BMI +
+    Schooling +
+    Infant_deaths +
+    Alcohol +
+    GDP +
+    Income +
+    Thinness_10_19_years
+)
+fitted_vals_3c = fitted(model_3c)
+residuals_3c = resid(model_3c)
+
+weights_c = 1/fitted(lm(abs(residuals_3c) ~ fitted_vals_3c))^2
+model_wls_c = lm(
+  data = life_clean,
+  Life_expectancy_bc ~
+    Status +
+    Adult_Mortality_c + Adult_Mortality_sq +
+    BMI +
+    Schooling +
+    Infant_deaths +
+    Alcohol +
+    GDP +
+    Income +
+    Thinness_10_19_years,
+  weights = weights_c
+)
+summary(model_wls_c)
+
+fitted_vals_wls_c = fitted(model_wls_c)
+residuals_wls_c = resid(model_wls_c)
+
+# Residuals vs Fitted Plot
+ggplot(data = NULL, aes(x = fitted_vals_wls_c, y = residuals_wls_c)) +
+  geom_point(alpha = 0.6, color = "black") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(x = "Fitted Values", y = "Residuals", title = "Residuals vs. Fitted Values") +
+  theme_minimal()
+#Linear
+
+#Homoscedasticity
+bptest(model_wls_c)
+#Non constant variance. Also the residuals vs. fitted has a funnel shape
+
+#Normality
+goftest::ad.test(residuals_wls_c)
+# Q-Q Plot of residuals
+ggplot(data = NULL, aes(sample = residuals_wls_c)) +
+  stat_qq() +
+  stat_qq_line(color = "red") +
+  labs(title = "Q-Q Plot of Residuals") +
+  theme_minimal()
+#Normality applies
+```
+#The qq plot improves a lot so we decided to remove all the influential points and outliers
+
+
