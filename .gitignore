@@ -11,7 +11,8 @@
 *.Rproj
 
 # Data folders (add your actual heavy dirs here)
-Project/
+Project/Data/
+Project/Output
 data/
 outputs/
 

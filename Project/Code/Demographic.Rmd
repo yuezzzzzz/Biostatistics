@@ -1,0 +1,305 @@
+---
+title: "Demographic_LA"
+author: "Yue Zhang"
+date: "2025-07-07"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+```{r setup, include = FALSE}
+#This code chunk will tidy your knit PDF files, wrapping long code lines
+#For it to work, the "formatR" package needs to be installed
+#install.packages('formatR')
+knitr::opts_chunk$set(tidy.opts=list(width.cutoff=60), tidy=TRUE)
+
+```
+
+#OVERVIEW
+
+This R Markdown file aims to follow the SES imputation steps:https://github.com/schwartzgroup/ses-imputation/blob/master/stage1_binary_dasymetric_interpolation.R
+for Los Angeles County
+
+#Set Working Directory and Load Packages
+```{r packages, message = FALSE, warning = FALSE}
+setwd("/Users/yuezhang/Documents/Biostat/Biostatistics/Project")
+getwd()
+library(data.table)
+library(dplyr)
+library(terra)
+library(sf)
+library(stringr)
+
+```
+
+#Load 2010 census block group shapefile
+```{r 2010 shapefile, message = FALSE, warning = FALSE}
+la_bg_2010 = st_read("/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Data/Raw/tl_2010_06037_bg00/tl_2010_06037_bg00.shp")
+la_bg_2000 = st_read("/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Data/Raw/2000_Census_Block_Groups/2000_Census_Block_Groups.shp")
+
+```
+
+
+#Load 2000 decennial census data and EDA
+```{r data, warning = FALSE, message = FALSE}
+nhgis_2000_block_pops = fread("/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Data/Raw/nhgis0004_csv/nhgis0004_ds152_2000_blck_grp_090.csv")
+CA_census_2000_bgp = nhgis_2000_block_pops %>% filter(STATEA == "6")
+LA_census_2000_bgp = CA_census_2000_bgp %>% filter(COUNTY == "Los Angeles")
+
+nhgis_2000_bg_pops = fread("/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Data/Raw/nhgis0005_csv/nhgis0005_ds152_2000_blck_grp.csv")
+CA_census_2000_bg = nhgis_2000_bg_pops %>% filter(STATEA == "6")
+LA_census_2000_bg = CA_census_2000_bg %>% filter(COUNTY == "Los Angeles")
+
+#Rename columns
+LA_census_2000_bgp = LA_census_2000_bgp %>%
+  rename(
+    total_population = HAK001,
+    white_alone = HAP001,
+    black_alone = HAP002,
+    native_alone = HAP003,
+    asian_alone = HAP004,
+    hawaiian_alone = HAP005,
+    other_race = HAP006,
+    two_or_more_races = HAP007,
+    male_hs_grad = HD1009,
+    female_hs_grad = HD1025,
+    male_unemployed = HEZ002,
+    female_unemployed = HEZ004,
+    MHI = HF6001
+  )
+
+#Add popdens and non-white percentage
+LA_census_2000_bgp = LA_census_2000_bgp %>% mutate(
+  #land_km2 = as.numeric(AREALAND) / 1e6,
+  #popdens = total_population / land_km2,
+  nonwhite = total_population - white_alone,
+  less_hs =
+    total_population - (
+      HD1001 + HD1002 + HD1003 + HD1004 + HD1005 + HD1006 + HD1007 + HD1008 + HD1017 + HD1018 + HD1019 + HD1020 + HD1021 + HD1022 + HD1023 + HD1024
+    ),
+  unemployment = male_unemployed + female_unemployed
+)
+
+#Filter data
+LA_census_2000_bgp = LA_census_2000_bgp %>% select(GISJOIN,
+                                                 total_population,
+                                                 nonwhite,
+                                                 less_hs,
+                                                 unemployment,
+                                                 MHI)
+
+#Load crosswalk 2000 bgp to 2010 bg https://www.nhgis.org/geographic-crosswalks#how-to
+cw = fread("/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Data/Raw/nhgis_bgp2000_bg2010_06/nhgis_bgp2000_bg2010_06.csv")
+
+#Merge cw with LA census data
+LA_census_2000_cw = merge(cw, LA_census_2000_bgp, by.x = "bgp2000gj", by.y = "GISJOIN")
+```
+
+#Interpolate 2000 bgp census data to 2010 bg census data
+```{r 2000 to 2010, message = FALSE, warning = FALSE}
+#Apply weights
+LA_census_2000_cw = LA_census_2000_cw %>% mutate(
+  total_population_cw = total_population * wt_pop,
+  nonwhite_cw = nonwhite * wt_pop,
+  less_hs_cw = less_hs * wt_adult,
+  unemployment_cw = unemployment * wt_adult,
+  MHI_cw = MHI * wt_hh
+)
+
+#Aggregate to 2010 bg level, add GEOID
+LA_2000_2010bg = LA_census_2000_cw %>% group_by(bg2010gj) %>% summarise(
+  total_population = sum(total_population_cw),
+  nonwhite = sum(nonwhite_cw),
+  less_hs = sum(less_hs_cw),
+  unemployment = sum(unemployment_cw),
+  MHI = sum(MHI_cw)
+) %>% mutate(
+  nonwhite_pct = nonwhite / total_population,
+  less_hs_pct = less_hs / total_population,
+  unemployment_pct = unemployment / total_population,
+  GEOID = paste0(
+    str_sub(bg2010gj, 2, 3),
+    str_sub(bg2010gj, 5, 7),
+    str_sub(bg2010gj, 9, 14),
+    str_sub(bg2010gj, 15, 18)
+  )
+)
+
+#Select only LA county
+LA_2000_2010bg = LA_2000_2010bg %>% filter(startsWith(GEOID, "06037"))
+
+```
+
+#Calculate popdens for 2000 to 2010 cw data
+```{r popdens, message = FALSE, warning = FALSE}
+#Calculate ALAND in km2
+la_bg_2010 = la_bg_2010 %>% mutate(area_km2 = ALAND00 / 1e6)
+
+#Merge shapefile with interpolated 2000 data
+LA_2000_2010bg_sp = merge(LA_2000_2010bg, la_bg_2010, by.x = "GEOID", by.y = "BKGPIDFP00")
+LA_2000_2010bg_sp = left_join(la_bg_2010, LA_2000_2010bg, by = c("BKGPIDFP00" = "GEOID"))
+```
+
+#Load ACS 2005-2009 5-yr data
+```{r acs 2005-2009, message = FALSE, warning = FALSE}
+nhgis_2005_2009_acs = fread("/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Data/Raw/nhgis0002_csv/nhgis0002_ds195_20095_blck_grp.csv")
+
+LA_2005_2009_acs = nhgis_2005_2009_acs %>% filter(STATEA == 6) %>% filter(COUNTY == "Los Angeles County")
+LA_2005_2009_acs = LA_2005_2009_acs %>% mutate(GEOID = str_remove(GEOID, "^15000US"))
+
+nhgis_2010_2009_acs = fread("/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Data/Raw/nhgis0002_csv/nhgis0002_ds195_20095_blck_grp.csv")
+
+LA_2005_2009_acs = nhgis_2005_2009_acs %>% filter(STATEA == 6) %>% filter(COUNTY == "Los Angeles County")
+LA_2005_2009_acs = LA_2005_2009_acs %>% mutate(GEOID = str_remove(GEOID, "^15000US"))
+
+anti_geoids_1 = LA_2007_2011_acs %>%
+  filter(!(GEOID %in% la_bg_2010$BKGPIDFP00)) %>%
+  pull(GEOID)
+
+print(anti_geoids_1)
+```
+
+#Load 2000, 2010, 2020 data
+```{r data, message = FALSE, warning = FALSE}
+LA_2000 = fread("/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Data/Raw/tl_2000_06037.csv")
+LA_2010 = fread("/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Data/Raw/tl_2010_06037.csv")
+LA_2020 = fread("/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Data/Raw/tl_2020_06037.csv")
+edu_2000 = fread("/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Data/Raw/nhgis0006_csv/nhgis0006_ds152_2000_blck_grp.csv")
+```
+
+#Data cleaning
+```{r cleaning, message = FALSE, warning = FALSE}
+edu_2000 = edu_2000 %>% rename(male_hs = HD1009, female_hs = HD1025) %>% mutate(
+  less_hs = HD1001 + HD1002 + HD1003 + HD1004 + HD1005 + HD1006 + HD1007 + HD1008 + HD1017 + HD1018 + HD1019 + HD1020 + HD1021 + HD1022 + HD1023 + HD1024
+)
+
+edu_2000 = edu_2000 %>% filter(STATEA == "6" &
+                                 COUNTYA == "37") %>% mutate(GEOID = paste0(
+                                   str_sub(GISJOIN, 2, 3),
+                                   str_sub(GISJOIN, 5, 7),
+                                   str_sub(GISJOIN, 9, 14),
+                                   str_sub(GISJOIN, 15, 18)
+                                 ))
+edu_2000 = edu_2000[, .(GEOID, less_hs)]
+LA_2000$GEOID = sprintf("%012s", as.character(LA_2000$GEOID))
+
+LA_2000 = merge(LA_2000, edu_2000, by.x = "GEOID", by.y = "GEOID")
+
+LA_2000 = LA_2000 %>%
+  rename(
+    total_population_2000 = HAK001,
+    white_alone_2000 = HAP001,
+    male_unemployed_2000 = HEZ002,
+    female_unemployed_2000 = HEZ004,
+    MHI_2000 = HF6001,
+    total_population_20095 = RK9E001,
+    white_alone_20095 = RLAE002,
+    male_hs_20095 = RM8E011,
+    female_hs_20095 = RM8E028,
+    MHI_20095 = RNHE001,
+    employed_20095 = RP5E001
+  ) %>% mutate(
+    nonwhite_2000 = total_population_2000 - white_alone_2000,
+    unemployed_2000 = total_population_2000 - (male_unemployed_2000 + female_unemployed_2000),
+    less_hs_2000 = total_population_2000 - less_hs,
+    nonwhite_20095 = total_population_20095 - white_alone_20095,
+    unemployed_20095 = total_population_20095 - employed_20095,
+    less_hs_20095 = total_population_20095 - (
+      RM8E003 + RM8E004 + RM8E005 + RM8E006 + RM8E007 + RM8E008 + RM8E009 + RM8E010 + RM8E020 + RM8E021 + RM8E022 + RM8E023 + RM8E024 + RM8E025 + RM8E026 + RM8E027
+    )
+  )
+
+LA_2000 = as.data.frame(LA_2000)
+
+LA_2000 = LA_2000 %>% dplyr::select(
+  GEOID,
+  ALAND00,
+  total_population_2000,
+  nonwhite_2000,
+  MHI_2000,
+  total_population_20095,
+  nonwhite_20095,
+  MHI_20095,
+  unemployed_2000,
+  unemployed_20095,
+  less_hs_2000,
+  less_hs_20095
+)
+
+LA_2010$GEOID = sprintf("%012s", as.character(LA_2010$GEOID))
+
+LA_2010 = LA_2010 %>%
+  rename(
+    total_population_20145 = ABA1E001,
+    white_alone_20145 = ABA2E002,
+    hs_20145 = ABC4E017,
+    unemployed_20145 = ABGFE005,
+    MHI_20145 = ABDPE001,
+    total_population_20195 = ALUBE001,
+    white_alone_20195 = ALUCE002,
+    hs_20195 = ALWGE017,
+    MHI_20195 = ALW1E001,
+    unemployed_20195 = ALY3E006
+  ) %>% mutate(
+    nonwhite_20145 = total_population_20145 - white_alone_20145,
+    less_hs_20145 = total_population_20145 - (
+      ABC4E002 + ABC4E003 + ABC4E004 + ABC4E005 + ABC4E006 + ABC4E007 + ABC4E008 + ABC4E009 + ABC4E010 + ABC4E011 + ABC4E012 + ABC4E013 + ABC4E014 + ABC4E015 + ABC4E016
+    ),
+    nonwhite_20195 = total_population_20195 - white_alone_20195,
+    less_hs_20195 = total_population_20195 - (
+      ALWGE002 + ALWGE003 + ALWGE004 + ALWGE005 + ALWGE006 + ALWGE007 + ALWGE008 + ALWGE009 + ALWGE010 + ALWGE011 + ALWGE012 + ALWGE013 + ALWGE014 + ALWGE015 + ALWGE016
+    )
+  )
+
+LA_2010 = as.data.frame(LA_2010)
+
+LA_2010 = LA_2010 %>% dplyr::select(
+  GEOID,
+  ALAND10,
+  total_population_20145,
+  nonwhite_20145,
+  MHI_20145,
+  total_population_20195,
+  nonwhite_20195,
+  MHI_20195,
+  unemployed_20145,
+  unemployed_20195,
+  less_hs_20145,
+  less_hs_20195
+)
+
+LA_2020$GEOID = sprintf("%012s", as.character(LA_2020$GEOID))
+
+LA_2020 = LA_2020 %>%
+  rename(
+    total_population_20205 = AMPVE001,
+    white_alone_20205 = AMPWE002,
+    hs_20205 = AMRZE017,
+    unemployed_20205 = AMT9E005,
+    MHI_20205 = AMR8E001
+  ) %>% mutate(
+    nonwhite_20205 = total_population_20205 - white_alone_20205,
+    less_hs_20205 = total_population_20205 - (
+      AMRZE002 + AMRZE003 + AMRZE004 + AMRZE005 + AMRZE006 + AMRZE007 + AMRZE008 + AMRZE009 + AMRZE010 + AMRZE011 + AMRZE012 + AMRZE013 + AMRZE014 + AMRZE015 + AMRZE016
+    )
+  )
+
+LA_2020 = as.data.frame(LA_2020)
+
+LA_2020 = LA_2020 %>% dplyr::select(
+  GEOID,
+  ALAND,
+  total_population_20205,
+  nonwhite_20205,
+  MHI_20205,
+  unemployed_20205,
+  less_hs_20205
+)
+```
+
+#Save cleaned csv
+```{r save, message = FALSE, warning = FALSE}
+write.csv(LA_2000, "LA_2000_demographic.csv", row.names = FALSE)
+write.csv(LA_2010, "LA_2010_demographic.csv", row.names = FALSE)
+write.csv(LA_2020, "LA_2020_demographic.csv", row.names = FALSE)
+```
+
