@@ -17,8 +17,9 @@ knitr::opts_chunk$set(tidy.opts=list(width.cutoff=60), tidy=TRUE)
 
 ## OVERVIEW
 
-This R Markdown file aims to plot the annual U.S. PM2.5 concentration downloaded from 1998 to 2022. https://sites.wustl.edu/acag/datasets/surface-pm2-5/
-
+This R Markdown file aims to plot the annual U.S. PM2.5, O3, BC concentration downloaded from 1998 to 2022. https://sites.wustl.edu/acag/datasets/surface-pm2-5/
+https://weijing-rs.github.io/product.html
+https://zenodo.org/records/7971584
 
 ## Set Working Directory and Load Packages
 ```{r packages, message = FALSE, warning = FALSE}
@@ -31,16 +32,28 @@ library(lattice)
 library(terra)
 library(ggplot2)
 library(sf)
+library(rasterVis)
+library(RColorBrewer)
+library(dplyr)
+library(magick)
 
-ncfile = ncdf4::nc_open("/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Data/V6GL02.02.CNNPM25.NA.202102-202102.nc")
+
+ncfile_pm25 = ncdf4::nc_open("/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Data/Raw/Annual/V5GL0502.HybridPM25.NorthAmerica.202101-202112.nc")
 names(ncfile$var)
+
+ncfile_o3 = ncdf4::nc_open("/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Data/Raw/O3_annual/USHAP_O3_Y1K_2000_V1.nc")
+names(ncfile_o3$var)
+
+ncfile_bc = ncdf4::nc_open("/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Data/Raw/BC_annual/USHAP_BC_Y1K_2000_V1.nc")
+names(ncfile_bc$var)
 ```
 
 #change the input path
 ```{r path}
-input_nc_2021 = "/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Data/V6GL02.02.CNNPM25.NA.202102-202102.nc"
+input_nc_2021 = "/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Data/Raw/Annual/V5GL0502.HybridPM25.NorthAmerica.202101-202112.nc"
 varname = 'GWRPM25'
-nc2raster_2021 = raster(input_nc, varname = varname, band = 1)
+nc2raster_2021 = raster(input_nc_2021, varname = varname, band = 1)
+crs(nc2raster_2021)
 ```
 
 #to output a quick view for the dataset
@@ -91,18 +104,18 @@ ggplot(df, aes(x = x, y = y, fill = value)) +
 
 ```
 
-#Loop the files from 1998 to 2022
-```{r loop}
-us_pm25_nc = list.files("/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Data/Annual/", full.names = TRUE)
+#Loop PM2.5 files from 1998 to 2023 (Annual, 1km)
+```{r pm2.5 loop, message = FALSE, warning = FALSE}
+us_pm25_nc = list.files("/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Data/Raw/Annual/", full.names = TRUE)
 
 pm25_breaks = seq(0, 45, by = 1)
 aq_colors = c(
-  "#00e400",  # Green
-  "#ffff00",  # Yellow
-  "#ff7e00",  # Orange
-  "#ff0000",  # Red
-  "#8f3f97",  # Purple
-  "#7e0023"   # Maroon
+  "steelblue1",  
+  "#ffff00",  
+  "#ff7e00", 
+  "#ff0000",  
+  "#8f3f97",  
+  "#7e0023" 
 )
 color_palette = colorRampPalette(aq_colors)(length(pm25_breaks)-1)
 
@@ -116,13 +129,13 @@ for (input_nc in us_pm25_nc) {
   df = df[df$x >= -118.95 & df$x <= -117.63 & df$y >= 32.78 & df$y <= 34.84, ]
   
   output_csv = file.path(
-    "/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Output/",
+    "/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Output/CSV/PM2.5/",
     paste0("PM25_", year, ".csv")
   )
   write.csv(df, file = output_csv, row.names = FALSE)
   message("Processed and saved CSV for year", year)
   output_tif = file.path(
-    "/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Output/Tif/",
+    "/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Output/Tif/PM25/",
     paste0("PM25_", year, ".tif")
   )
   writeRaster(
@@ -148,7 +161,7 @@ for (input_nc in us_pm25_nc) {
   assign(paste0("raster_", year), raster_year, envir = .GlobalEnv)
   
   plot_file = file.path(
-    "/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Output/Plot/",
+    "/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Output/Plot/PM2.5/",
     paste0("PM25 Plot_", year, ".png")
   )
   device_opened = FALSE
@@ -184,4 +197,780 @@ for (input_nc in us_pm25_nc) {
 
 ```
 
+#LA PM2.5 raster
+```{r la pm2.5, message = FALSE, message = FALSE}
+#la_pm25_breaks = seq(0, 30, by = 1)
+#la_color_palette = colorRampPalette(aq_colors)(length(la_pm25_breaks)-1)
+la_boundary = st_read("/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Data/Raw/City_Boundary/City_Boundary.shp")
+la_terra = vect(la_boundary)
+la_sp = as(la_boundary, "Spatial")
+tif_dir = "/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Output/Tif/PM25/"
+plot_dir = "/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Output/Plot/LA/PM2.5/"
+tif_files = list.files(tif_dir, pattern = "\\.tif$", full.names = TRUE)
+pm_years = gsub(".*PM25_(\\d{4})\\.tif", "\\1", basename(tif_files))
+
+# Loop over files
+for (file in tif_files) {
+  year = gsub(".*PM25_(\\d{4})\\.tif", "\\1", basename(file))
+  r = rast(file)
+  
+  # Project LA shapefile to match raster
+  la_proj = project(la_terra, crs(r))
+  
+  # Crop and mask raster
+  r_crop = crop(r, la_proj)
+  r_mask = mask(r_crop, la_proj)
+  r_raster = raster(r_mask)
+  pm25_df = as.data.frame(r_mask, xy = TRUE, na.rm = TRUE)
+  names(pm25_df)[3] = "PM25"
+  
+  # Skip empty rasters
+  if (all(is.na(values(r_mask)))) {
+    message("Skipped empty raster for year ", year)
+    next
+  }
+  
+  # Plot and save
+  pm_min_actual = round(min(pm25_df$PM25, na.rm = TRUE), 4)
+  pm_max_actual = round(max(pm25_df$PM25, na.rm = TRUE), 4)
+  pm_min_fixed = 3
+  pm_max_fixed = 26
+  p = ggplot(pm25_df) +
+    geom_raster(aes(x = x, y = y, fill = PM25)) +
+    scale_fill_gradientn(
+      colors = aq_colors,
+      limits = c(pm_min_fixed, pm_max_fixed),
+      breaks = c(pm_min_fixed, pm_max_fixed, pm_min_actual, pm_max_actual),
+      labels = c(
+        pm_min_fixed,
+        pm_max_fixed,
+        paste0("Min:", pm_min_actual),
+        paste0("Max:", pm_max_actual)
+      ),
+      name = "PM2.5\n"
+    ) +
+    coord_equal() +
+    labs(title = paste("PM2.5 - LA", year), fill = "PM2.5") +
+    theme_minimal(base_size = 12) +
+    theme(
+      panel.background = element_rect(fill = "white", color = NA),
+      plot.background = element_rect(fill = "white", color = NA),
+      axis.title = element_blank(),
+      legend.position = "right",
+      plot.title = element_text(face = "bold", hjust = 0.5)
+    )
+  print(p)
+  
+  ggsave(
+    filename = file.path(plot_dir, paste0("PM25_LA_", year, ".png")),
+    plot = p,
+    width = 20,
+    height = 15,
+    units = "cm",
+    dpi = 1000
+  )
+}
+
+#gif
+pm_plot_dir = "/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Output/Plot/LA/PM2.5/"
+pm_png_files = list.files(pm_plot_dir, pattern = "\\.png$", full.names = TRUE)
+pm_img_list = image_read(pm_png_files)
+pm_img_gif  = image_animate(pm_img_list, fps = 1)
+image_write(pm_img_gif, "PM2.5_LA_2000_2020.gif")
+
+#PM2.5 change
+for (i in 2:length(tif_files)) {
+  file_prev = tif_files[[i - 1]]
+  file_current = tif_files[[i]]
+  year_prev = pm_years[i - 1]
+  year_current = pm_years[i]
+  
+  r_prev = rast(file_prev)
+  la_proj = project(la_terra, crs(r_prev))
+  r_prev_crop = crop(r_prev, la_proj)
+  r_prev_mask = mask(r_prev_crop, la_proj)
+  
+  r_curr = rast(file_current)
+  r_curr_crop = crop(r_curr, la_proj)
+  r_curr_mask = mask(r_curr_crop, la_proj)
+
+  raster_change = r_curr_mask - r_prev_mask
+  raster_change_df = as.data.frame(raster_change, xy = TRUE, na.rm = TRUE)
+  names(raster_change_df)[3] = "PM_difference"
+  
+  diff_min_actual = round(min(raster_change_df$PM_difference, na.rm = TRUE), 4)
+  diff_max_actual = round(max(raster_change_df$PM_difference, na.rm = TRUE), 4)
+  diff_min_fixed = -4.5
+  diff_max_fixed = 5
+  
+  p = ggplot(raster_change_df) + geom_raster(aes(x = x, y = y, fill = PM_difference)) + scale_fill_gradient2(
+    low = "steelblue1",
+    mid = "grey90",
+    high = "#7e0023",
+    midpoint = 0,
+    limits = c(diff_min_fixed, diff_max_fixed),
+    breaks = c(
+      diff_min_fixed,
+      diff_max_fixed,
+      diff_min_actual,
+      diff_max_actual
+    ),
+    labels = c(
+      diff_min_fixed,
+      diff_max_fixed,
+      paste0("Min:", diff_min_actual),
+      paste0("Max:", diff_max_actual)
+    ),
+    name = "PM2.5 Change\n"
+  ) +
+    coord_equal() +
+    labs(title = paste("PM2.5 Change - LA", year_prev, "-", year_current),
+         fill = "PM2.5 Change") +
+    theme_minimal(base_size = 12) +
+    theme(
+      panel.background = element_rect(fill = "white", color = NA),
+      plot.background = element_rect(fill = "white", color = NA),
+      axis.title = element_blank(),
+      legend.position = "right",
+      plot.title = element_text(face = "bold", hjust = 0.5)
+    )
+  print(p)
+  
+  ggsave(
+    filename = paste0("PM2.5_Change_", year_prev, "_to_", year_current, ".png"),
+    plot = p,
+    width = 20,
+    height = 15,
+    units = "cm",
+    dpi = 1000
+  )
+}
+
+#gif
+pm_change_plot_dir = "/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Output/Plot/LA/PM2.5/Change/"
+pm_change_png_files = list.files(pm_change_plot_dir, pattern = "\\.png$", full.names = TRUE)
+pm_change_img_list = image_read(pm_change_png_files)
+pm_change_img_gif  = image_animate(pm_change_img_list, fps = 1)
+image_write(pm_change_img_gif, "PM2.5_Change_LA_2000_2020.gif")
+
+
+```
+
+#Loop O3 files from 2000 to 2020(Annual, 1km)
+```{r o3 loop, message = FALSE, warning = FALSE}
+us_o3_nc = list.files("/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Data/Raw/o3_annual/", full.names = TRUE)
+
+o3_breaks = seq(0, 60, by = 1)
+aq_colors = c(
+  "#00e400",
+  "#ffff00",
+  "#ff7e00",
+  "#ff0000",
+  "#8f3f97",
+  "#7e0023" 
+)
+color_palette = colorRampPalette(aq_colors)(length(o3_breaks)-1)
+
+for (input_nc in us_o3_nc) {
+  file_name = basename(input_nc)
+  year = sub(".*_(\\d{4})_.*\\.nc", "\\1", file_name)
+  varname = "O3"
+  nc_to_raster = stack(input_nc, varname = varname)
+  df = as.data.frame(nc_to_raster, xy = TRUE)
+  
+  df = df[df$x >= -118.95 & df$x <= -117.63 & df$y >= 32.78 & df$y <= 34.84, ]
+  
+  output_csv = file.path(
+    "/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Output/CSV/O3/",
+    paste0("O3_", year, ".csv")
+  )
+  write.csv(df, file = output_csv, row.names = FALSE)
+  message("Processed and saved CSV for year", year)
+  output_tif = file.path(
+    "/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Output/Tif/O3/",
+    paste0("O3_", year, ".tif")
+  )
+  writeRaster(
+    nc_to_raster,
+    filename = output_tif,
+    format = "GTiff",
+    overwrite = TRUE
+  )
+  raster_year = rast(output_tif)
+  print(raster_year)
+  raster_vals = values(raster_year)
+  if (length(raster_vals) == 0 || all(is.na(raster_vals))) {
+    message("No data found in raster for year", year)
+  } else{
+    tryCatch({
+      s = summary(raster_year)
+      print(s)
+    }, error = function(e) {
+      message("error summarizing raster for year", year, ":", e$message)
+    })
+  }
+  
+  assign(paste0("raster_", year), raster_year, envir = .GlobalEnv)
+  
+  plot_file = file.path(
+    "/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Output/Plot/O3/",
+    paste0("O3 Plot_", year, ".png")
+  )
+  device_opened = FALSE
+  tryCatch({
+    png(
+      filename = plot_file,
+      width = 20,
+      height = 15,
+      units = "cm",
+      res = 1000
+    )
+    device_opened = TRUE
+    print(levelplot(
+      raster_year, 
+      margin = FALSE, 
+      main = paste("O3 Raster", year),
+      at = o3_breaks, 
+      col.regions = color_palette,
+      colorkey = list(
+        space = "bottom",
+        labels = list(
+          at = seq(0, 60, by = 5),
+          labels = as.character(seq(0, 60, by = 5))
+        )
+      )))
+  }, error = function(e) {
+    message("plotting error for year", year, ":", e$message)
+  }, finally = {
+    if (device_opened && dev.cur() > 1)
+      dev.off()
+  })
+}
+
+```
+
+#LA O3 raster
+```{r la o3, message = FALSE, message = FALSE}
+o3_tif_dir = "/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Output/Tif/O3"
+o3_plot_dir = "/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Output/Plot/LA/O3/"
+o3_tif_files = list.files(o3_tif_dir, pattern = "\\.tif$", full.names = TRUE)
+o3_years = gsub(".*O3_(\\d{4})\\.tif", "\\1", basename(o3_tif_files))
+
+# Loop over files
+for (file in o3_tif_files) {
+  year = gsub(".*O3_(\\d{4})\\.tif", "\\1", basename(file))
+  r = rast(file)
+
+  # Project LA shapefile to match raster
+  la_proj = project(la_terra, crs(r))
+
+  # Crop and mask raster
+  r_crop = crop(r, la_proj)
+  r_mask = mask(r_crop, la_proj)
+  o3_df = as.data.frame(r_mask, xy = TRUE, na.rm = TRUE)
+  names(o3_df)[3] = "O3"
+
+  # Skip empty rasters
+  if (all(is.na(values(r_mask)))) {
+    message("Skipped empty raster for year ", year)
+    next
+  }
+
+  # Plot and save
+  o3_min_actual = round(min(o3_df$O3, na.rm = TRUE), 4)
+  o3_max_actual = round(max(o3_df$O3, na.rm = TRUE), 4)
+  o3_min_fixed = 22
+  o3_max_fixed = 57
+  p = ggplot(o3_df) +
+    geom_raster(aes(x = x, y = y, fill = O3)) +
+    scale_fill_gradientn(
+      colors = aq_colors,
+      limits = c(o3_min_fixed, o3_max_fixed),
+      breaks = c(o3_min_fixed, o3_max_fixed, o3_min_actual, o3_max_actual),
+      labels = c(
+        o3_min_fixed,
+        o3_max_fixed,
+        paste0("Min:", o3_min_actual),
+        paste0("Max:", o3_max_actual)
+      ),
+      name = "Ozone\n"
+    ) +
+    coord_equal() +
+    labs(title = paste("Ozone - LA", year), fill = "Ozone") +
+    theme_minimal(base_size = 12) +
+    theme(
+      panel.background = element_rect(fill = "white", color = NA),
+      plot.background = element_rect(fill = "white", color = NA),
+      axis.title = element_blank(),
+      legend.position = "right",
+      plot.title = element_text(face = "bold", hjust = 0.5)
+    )
+  print(p)
+  
+  ggsave(
+    filename = file.path(o3_plot_dir, paste0("O3_LA_", year, ".png")),
+    plot = p,
+    width = 20,
+    height = 15,
+    units = "cm",
+    dpi = 1000
+  )
+}
+
+#gif
+o3_png_files = list.files(o3_plot_dir, pattern = "\\.png$", full.names = TRUE)
+o3_img_list = image_read(o3_png_files)
+o3_img_gif  = image_animate(o3_img_list, fps = 1)
+image_write(o3_img_gif, "O3_LA_2000_2020.gif")
+
+ #O3 change
+for (i in 2:length(o3_tif_files)) {
+  file_prev = o3_tif_files[[i - 1]]
+  file_current = o3_tif_files[[i]]
+  year_prev = o3_years[i - 1]
+  year_current = o3_years[i]
+  
+  r_prev = rast(file_prev)
+  la_proj = project(la_terra, crs(r_prev))
+  r_prev_crop = crop(r_prev, la_proj)
+  r_prev_mask = mask(r_prev_crop, la_proj)
+  
+  r_curr = rast(file_current)
+  r_curr_crop = crop(r_curr, la_proj)
+  r_curr_mask = mask(r_curr_crop, la_proj)
+
+  raster_change = r_curr_mask - r_prev_mask
+  raster_change_df = as.data.frame(raster_change, xy = TRUE, na.rm = TRUE)
+  names(raster_change_df)[3] = "O3_difference"
+  
+  diff_min_actual = round(min(raster_change_df$O3_difference, na.rm = TRUE), 4)
+  diff_max_actual = round(max(raster_change_df$O3_difference, na.rm = TRUE), 4)
+  diff_min_fixed = -10
+  diff_max_fixed = 13
+  
+  p = ggplot(raster_change_df) + geom_raster(aes(x = x, y = y, fill = O3_difference)) + scale_fill_gradient2(
+    low = "steelblue1",
+    mid = "grey90",
+    high = "#7e0023",
+    midpoint = 0,
+    limits = c(diff_min_fixed, diff_max_fixed),
+    breaks = c(
+      diff_min_fixed,
+      diff_max_fixed,
+      diff_min_actual,
+      diff_max_actual
+    ),
+    labels = c(
+      diff_min_fixed,
+      diff_max_fixed,
+      paste0("Min:", diff_min_actual),
+      paste0("Max:", diff_max_actual)
+    ),
+    name = "Ozone Change\n"
+  ) +
+    coord_equal() +
+    labs(title = paste("Ozone Change - LA", year_prev, "-", year_current),
+         fill = "O3 Change") +
+    theme_minimal(base_size = 12) +
+    theme(
+      panel.background = element_rect(fill = "white", color = NA),
+      plot.background = element_rect(fill = "white", color = NA),
+      axis.title = element_blank(),
+      legend.position = "right",
+      plot.title = element_text(face = "bold", hjust = 0.5)
+    )
+  print(p)
+  
+  ggsave(
+    filename = paste0("O3_Change_", year_prev, "_to_", year_current, ".png"),
+    plot = p,
+    width = 20,
+    height = 15,
+    units = "cm",
+    dpi = 1000
+  )
+}
+
+#gif
+o3_change_plot_dir = "/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Output/Plot/LA/O3/Change/"
+o3_change_png_files = list.files(o3_change_plot_dir, pattern = "\\.png$", full.names = TRUE)
+o3_change_img_list = image_read(o3_change_png_files)
+o3_change_img_gif  = image_animate(o3_change_img_list, fps = 1)
+image_write(o3_change_img_gif, "O3_Change_LA_2000_2020.gif")
+
+```
+
+
+#Loop Black Carbon files from 2000 to 2020(Annual, 1km)
+```{r bc loop}
+us_bc_nc = list.files("/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Data/Raw/BC_annual/", full.names = TRUE)
+aq_colors = c(
+  "#00e400",
+  "#ffff00",
+  "#ff7e00",
+  "#ff0000",
+  "#8f3f97",
+  "#7e0023"   
+)
+bc_palette = colorRampPalette(aq_colors)(length(bc_breaks)-1)
+
+for (input_nc in us_bc_nc) {
+  file_name = basename(input_nc)
+  year = sub(".*_(\\d{4})_.*\\.nc", "\\1", file_name)
+  varname = "BC"
+  nc_to_raster = stack(input_nc, varname = varname)
+  df = as.data.frame(nc_to_raster, xy = TRUE)
+  
+  df = df[df$x >= -118.95 & df$x <= -117.63 & df$y >= 32.78 & df$y <= 34.84, ]
+  
+  output_csv = file.path(
+    "/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Output/CSV/BC/",
+    paste0("BC_", year, ".csv")
+  )
+  write.csv(df, file = output_csv, row.names = FALSE)
+  message("Processed and saved CSV for year", year)
+  output_tif = file.path(
+    "/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Output/Tif/BC/",
+    paste0("BC_", year, ".tif")
+  )
+  writeRaster(
+    nc_to_raster,
+    filename = output_tif,
+    format = "GTiff",
+    overwrite = TRUE
+  )
+  raster_year = rast(output_tif)
+  print(raster_year)
+  raster_vals = values(raster_year)
+  if (length(raster_vals) == 0 || all(is.na(raster_vals))) {
+    message("No data found in raster for year", year)
+  } else{
+    tryCatch({
+      s = summary(raster_year)
+      print(s)
+    }, error = function(e) {
+      message("error summarizing raster for year", year, ":", e$message)
+    })
+  }
+  
+  assign(paste0("raster_", year), raster_year, envir = .GlobalEnv)
+  
+  plot_file = file.path(
+    "/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Output/Plot/BC/",
+    paste0("BC Plot_", year, ".png")
+  )
+  device_opened = FALSE
+  tryCatch({
+    png(
+      filename = plot_file,
+      width = 20,
+      height = 15,
+      units = "cm",
+      res = 1000
+    )
+    device_opened = TRUE
+    print(levelplot(
+      raster_year, 
+      margin = FALSE, 
+      main = paste("BC Raster", year),
+      at = bc_breaks, 
+      col.regions = color_palette,
+      colorkey = list(
+        space = "bottom",
+        labels = list(
+          at = seq(0, 2.1, by = 0.5),
+          labels = as.character(seq(0, 2.1, by = 0.5))
+        )
+      )))
+  }, error = function(e) {
+    message("plotting error for year", year, ":", e$message)
+  }, finally = {
+    if (device_opened && dev.cur() > 1)
+      dev.off()
+  })
+}
+
+```
+
+#LA BC raster
+```{r la bc, message = FALSE, message = FALSE}
+bc_tif_dir = "/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Output/Tif/BC"
+bc_plot_dir = "/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Output/Plot/LA/BC/"
+bc_tif_files = list.files(bc_tif_dir, pattern = "\\.tif$", full.names = TRUE)
+bc_years = gsub(".*BC_(\\d{4})\\.tif", "\\1", basename(bc_tif_files))
+
+# Loop over files
+for (file in bc_tif_files) {
+  year = gsub(".*BC_(\\d{4})\\.tif", "\\1", basename(file))
+  r = rast(file)
+
+  # Project LA shapefile to match raster
+  la_proj = project(la_terra, crs(r))
+
+  # Crop and mask raster
+  r_crop = crop(r, la_proj)
+  r_mask = mask(r_crop, la_proj)
+  r_raster = raster(r_mask)
+  bc_df = as.data.frame(r_mask, xy = TRUE, na.rm = TRUE)
+  names(bc_df)[3] = "BC"
+
+  # Skip empty rasters
+  if (all(is.na(values(r_mask)))) {
+    message("Skipped empty raster for year ", year)
+    next
+  }
+
+  # Plot and save
+  bc_min_actual = round(min(bc_df$BC, na.rm = TRUE), 4)
+  bc_max_actual = round(max(bc_df$BC, na.rm = TRUE), 4)
+  bc_min_fixed = 0.3
+  bc_max_fixed = 2.3
+  p = ggplot(bc_df) +
+    geom_raster(aes(x = x, y = y, fill = BC)) +
+    scale_fill_gradientn(
+      colors = aq_colors,
+      limits = c(bc_min_fixed, bc_max_fixed),
+      breaks = c(bc_min_fixed, bc_max_fixed, bc_min_actual, bc_max_actual),
+      labels = c(
+        bc_min_fixed,
+        bc_max_fixed,
+        paste0("Min:", bc_min_actual),
+        paste0("Max:", bc_max_actual)
+      ),
+      name = "Black Carbon\n"
+    ) +
+    coord_equal() +
+    labs(title = paste("Black Carbon - LA", year), fill = "Black Carbon") +
+    theme_minimal(base_size = 12) +
+    theme(
+      panel.background = element_rect(fill = "white", color = NA),
+      plot.background = element_rect(fill = "white", color = NA),
+      axis.title = element_blank(),
+      legend.position = "right",
+      plot.title = element_text(face = "bold", hjust = 0.5)
+    )
+  print(p)
+  
+  ggsave(
+    filename = file.path(bc_plot_dir, paste0("BC_LA_", year, ".png")),
+    plot = p,
+    width = 20,
+    height = 15,
+    units = "cm",
+    dpi = 1000
+  )
+}
+
+#gif
+bc_png_files = list.files(bc_plot_dir, pattern = "\\.png$", full.names = TRUE)
+bc_img_list = image_read(bc_png_files)
+bc_img_gif  = image_animate(bc_img_list, fps = 1)
+image_write(bc_img_gif, "BC_LA_2000_2020.gif")
+
+#BC change
+for (i in 2:length(bc_tif_files)) {
+  file_prev = bc_tif_files[[i - 1]]
+  file_current = bc_tif_files[[i]]
+  year_prev = bc_years[i - 1]
+  year_current = bc_years[i]
+  
+  r_prev = rast(file_prev)
+  la_proj = project(la_terra, crs(r_prev))
+  r_prev_crop = crop(r_prev, la_proj)
+  r_prev_mask = mask(r_prev_crop, la_proj)
+  
+  r_curr = rast(file_current)
+  r_curr_crop = crop(r_curr, la_proj)
+  r_curr_mask = mask(r_curr_crop, la_proj)
+
+  raster_change = r_curr_mask - r_prev_mask
+  raster_change_df = as.data.frame(raster_change, xy = TRUE, na.rm = TRUE)
+  names(raster_change_df)[3] = "BC_difference"
+  
+  diff_min_actual = round(min(raster_change_df$BC_difference, na.rm = TRUE), 4)
+  diff_max_actual = round(max(raster_change_df$BC_difference, na.rm = TRUE), 4)
+  diff_min_fixed = -0.6
+  diff_max_fixed = 0.6
+  
+  p = ggplot(raster_change_df) + geom_raster(aes(x = x, y = y, fill = BC_difference)) + scale_fill_gradient2(
+    low = "steelblue1",
+    mid = "grey90",
+    high = "#7e0023",
+    midpoint = 0,
+    limits = c(diff_min_fixed, diff_max_fixed),
+    breaks = c(
+      diff_min_fixed,
+      diff_max_fixed,
+      diff_min_actual,
+      diff_max_actual
+    ),
+    labels = c(
+      diff_min_fixed,
+      diff_max_fixed,
+      paste0("Min:", diff_min_actual),
+      paste0("Max:", diff_max_actual)
+    ),
+    name = "Black Carbon Change\n"
+  ) +
+    coord_equal() +
+    labs(title = paste("Black Carbon Change - LA", year_prev, "-", year_current),
+         fill = "BC Change") +
+    theme_minimal(base_size = 12) +
+    theme(
+      panel.background = element_rect(fill = "white", color = NA),
+      plot.background = element_rect(fill = "white", color = NA),
+      axis.title = element_blank(),
+      legend.position = "right",
+      plot.title = element_text(face = "bold", hjust = 0.5)
+    )
+  print(p)
+  
+  ggsave(
+    filename = paste0("BC_Change_", year_prev, "_to_", year_current, ".png"),
+    plot = p,
+    width = 20,
+    height = 15,
+    units = "cm",
+    dpi = 1000
+  )
+}
+
+#gif
+bc_change_plot_dir = "/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Output/Plot/LA/BC/Change/"
+bc_change_png_files = list.files(bc_change_plot_dir, pattern = "\\.png$", full.names = TRUE)
+bc_change_img_list = image_read(bc_change_png_files)
+bc_change_img_gif  = image_animate(bc_change_img_list, fps = 1)
+image_write(bc_change_img_gif, "BC_Change_LA_2000_2020.gif")
+
+```
+
+#LA NDVI
+```{r ndvi, message = FALSE, warning = FALSE}
+#plot each year's annual mean ndvi
+ndvi_files = list.files("/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Data/Raw/GEE_exports/", full.names = TRUE)
+ndvi_stack = rast(ndvi_files)
+years = gsub(".*NDVI_LA_(\\d{4})\\.tif$", "\\1", ndvi_files)
+names(ndvi_stack) = years
+
+for (i in 1:nlyr(ndvi_stack)) {
+  r = ndvi_stack[[i]]
+  year = names(ndvi_stack)[i]
+  df = as.data.frame(r, xy = TRUE, na.rm = TRUE)
+  names(df)[3] = "NDVI"
+  
+  ndvi_range = global(r, fun = "range", na.rm = TRUE)
+  ndvi_min_actual = round(as.numeric(ndvi_range[1, 1]), 4)
+  ndvi_max_actual = round(as.numeric(ndvi_range[1, 2]), 4)
+  ndvi_min_fixed = -0.3
+  ndvi_max_fixed = 1
+  
+  p = ggplot(df) + geom_raster(aes(x = x, y = y, fill = NDVI)) +
+    scale_fill_gradientn(
+      colors = c("#FF0000", "#FFFF00", "darkgreen"),
+      limits = c(ndvi_min_fixed, ndvi_max_fixed),
+      breaks = c(ndvi_min_fixed, ndvi_max_fixed, ndvi_min_actual, ndvi_max_actual),
+      labels = c(
+        ndvi_min_fixed,
+        ndvi_max_fixed,
+        paste0("Min:", ndvi_min_actual),
+        paste0("Max:", ndvi_max_actual)
+      ),
+      name = "NDVI\n"
+    ) +
+    coord_equal() +
+    labs(title = paste("NDVI - LA", year), fill = "NDVI") +
+    theme_minimal(base_size = 12) +
+    theme(
+      panel.background = element_rect(fill = "white", color = NA),
+      plot.background = element_rect(fill = "white", color = NA),
+      axis.title = element_blank(),
+      legend.position = "right",
+      plot.title = element_text(face = "bold", hjust = 0.5)
+    )
+  print(p)
+  
+  ggsave(
+    filename = paste0("NDVI_LA_", year, ".png"),
+    plot = p,
+    width = 20,
+    height = 15,
+    units = "cm",
+    dpi = 1000
+  )
+}
+
+#gif
+ndvi_plot_dir = "/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Output/NDVI/Plot/"
+years = names(ndvi_stack)
+ndvi_png_files = file.path(ndvi_plot_dir, sprintf("NDVI_LA_%s.png", years))
+ndvi_img_list = image_read(ndvi_png_files)
+ndvi_img_gif  = image_animate(ndvi_img_list, fps = 1)
+image_write(ndvi_img_gif, "NDVI_LA_2000_2020.gif")
+
+#plot the changes of ndvi between each year
+for (i in 2:nlyr(ndvi_stack)) {
+  r_prev = ndvi_stack[[i - 1]]
+  r_current = ndvi_stack[[i]]
+  year_prev = names(ndvi_stack)[i - 1]
+  year_current = names(ndvi_stack)[i]
+  raster_change = r_current - r_prev
+  raster_change_df = as.data.frame(raster_change, xy = TRUE, na.rm = TRUE)
+  names(raster_change_df)[3] = "NDVI_difference"
+  
+  diff_min_actual = round(min(raster_change_df$NDVI_difference, na.rm = TRUE), 4)
+  diff_max_actual = round(max(raster_change_df$NDVI_difference, na.rm = TRUE), 4)
+  diff_min_fixed = -0.5
+  diff_max_fixed = 0.5
+  
+  p = ggplot(raster_change_df) + geom_raster(aes(x = x, y = y, fill = NDVI_difference)) + scale_fill_gradient2(
+    low = "red",
+    mid = "grey90",
+    high = "darkgreen",
+    midpoint = 0,
+    limits = c(diff_min_fixed, diff_max_fixed),
+    breaks = c(
+      diff_min_fixed,
+      diff_max_fixed,
+      diff_min_actual,
+      diff_max_actual
+    ),
+    labels = c(
+      diff_min_fixed,
+      diff_max_fixed,
+      paste0("Min:", diff_min_actual),
+      paste0("Max:", diff_max_actual)
+    ),
+    name = "NDVI Change\n"
+  ) +
+    coord_equal() +
+    labs(title = paste("NDVI Change - LA", year_prev, "-", year_current),
+         fill = "NDVI Change") +
+    theme_minimal(base_size = 12) +
+    theme(
+      panel.background = element_rect(fill = "white", color = NA),
+      plot.background = element_rect(fill = "white", color = NA),
+      axis.title = element_blank(),
+      legend.position = "right",
+      plot.title = element_text(face = "bold", hjust = 0.5)
+    )
+  print(p)
+  
+  ggsave(
+    filename = paste0("NDVI_Change_", year_prev, "_to_", year_current, ".png"),
+    plot = p,
+    width = 20,
+    height = 15,
+    units = "cm",
+    dpi = 1000
+  )
+}
+
+#gif
+ndvi_change_plot_dir = "/Users/yuezhang/Documents/Biostat/Biostatistics/Project/Output/NDVI/Plot/Change/"
+ndvi_change_png_files = list.files(ndvi_change_plot_dir, pattern = "\\.png$", full.names = TRUE)
+ndvi_change_img_list = image_read(ndvi_change_png_files)
+ndvi_change_img_gif  = image_animate(ndvi_change_img_list, fps = 1)
+image_write(ndvi_change_img_gif, "NDVI_Change_LA_2000_2020.gif")
+
+```
 

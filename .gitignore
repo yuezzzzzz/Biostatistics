@@ -2,3 +2,35 @@
 .Rhistory
 .RData
 .Ruserdata
+
+# macOS system junk
+.DS_Store
+
+# RStudio project files
+.Rproj.user/
+*.Rproj
+
+# Data folders (add your actual heavy dirs here)
+Project/
+data/
+outputs/
+
+# Large file types
+*.rds
+*.RData
+*.rda
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.tif
+*.tiff
+*.png
+*.jpg
+*.pdf
+*.gif
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
